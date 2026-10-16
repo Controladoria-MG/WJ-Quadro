@@ -74,8 +74,8 @@
     </div>
 
     <div class="nav-section-label nav-section-row">
-      Equipes
-      <button class="btn-nav-add hidden" id="btn-nova-equipe" title="Nova equipe">+</button>
+      Equipes e grupos
+      <button class="btn-nav-add" id="btn-nova-equipe" title="Novo grupo">+</button>
     </div>
 
     <div id="nav-equipes">
@@ -144,6 +144,12 @@
         <p>Crie e acompanhe tarefas internas da equipe</p>
       </div>
       <div class="topbar-actions">
+        <button class="btn btn-ghost hidden" id="btn-colunas">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="5" height="18" rx="1"/><rect x="10" y="3" width="5" height="12" rx="1"/><rect x="17" y="3" width="4" height="15" rx="1"/>
+          </svg>
+          Colunas
+        </button>
         <button class="btn btn-ghost" id="btn-equipe-membros">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
@@ -279,14 +285,12 @@
 
         <div class="field-row">
           <div class="form-group">
-            <label class="form-label">Tipo de Prazo <span class="form-required">*</span></label>
-            <select id="input-prazo">
-              <option value="">Selecione...</option>
-              <option value="diaria">Diária</option>
-              <option value="hoje">Para hoje</option>
-              <option value="semana">Para a semana</option>
-              <option value="mes">Para o mês</option>
-            </select>
+            <label class="form-label">Coluna <span class="form-required">*</span></label>
+            <select id="input-coluna"></select>
+            <label class="checkbox-row checkbox-diaria">
+              <input type="checkbox" id="input-diaria" />
+              Repetir todo dia
+            </label>
           </div>
           <div class="form-group">
             <label class="form-label">Data do Prazo</label>
@@ -408,13 +412,12 @@
 
             <div class="field-row">
               <div class="form-group">
-                <label class="form-label">Tipo de Prazo</label>
-                <select id="detail-prazo-sel">
-                  <option value="diaria">Diária</option>
-                  <option value="hoje">Para hoje</option>
-                  <option value="semana">Para a semana</option>
-                  <option value="mes">Para o mês</option>
-                </select>
+                <label class="form-label">Coluna</label>
+                <select id="detail-coluna-sel"></select>
+                <label class="checkbox-row checkbox-diaria">
+                  <input type="checkbox" id="detail-diaria" />
+                  Repetir todo dia
+                </label>
               </div>
               <div class="form-group">
                 <label class="form-label">Data do Prazo</label>
@@ -479,6 +482,7 @@
             <option value="hoje">Para hoje</option>
             <option value="semana">Para a semana</option>
             <option value="mes">Para o mês</option>
+            <option value="unica">Única</option>
           </select>
         </div>
         <div class="form-group">
@@ -675,6 +679,74 @@
     <div class="modal-footer">
       <button class="btn btn-danger hidden" id="btn-equipe-excluir">Excluir equipe</button>
       <button class="btn btn-ghost" id="btn-equipe-fechar">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════
+     MODAL: Novo grupo
+══════════════════════════════════════════════════════ -->
+<div class="modal-overlay hidden" id="modal-grupo-overlay">
+  <div class="modal" id="modal-grupo" style="max-width:480px;">
+    <div class="modal-header">
+      <div class="modal-header-info">
+        <h2>Novo grupo</h2>
+        <p>Junte pessoas de qualquer departamento num quadro próprio</p>
+      </div>
+      <button class="btn-close" id="btn-close-grupo">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </button>
+    </div>
+
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Nome do grupo <span class="form-required">*</span></label>
+        <input type="text" id="grupo-nome" placeholder="Ex: Projeto Fechamento Anual" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Participantes <span class="grupo-contador" id="grupo-contador"></span></label>
+        <input type="text" id="grupo-busca" placeholder="Buscar pessoa..." />
+        <div class="grupo-pessoas" id="grupo-pessoas"></div>
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn btn-ghost" id="btn-cancel-grupo">Cancelar</button>
+      <button class="btn btn-primary" id="btn-save-grupo">Criar grupo</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════
+     MODAL: Colunas do quadro
+══════════════════════════════════════════════════════ -->
+<div class="modal-overlay hidden" id="modal-colunas-overlay">
+  <div class="modal" id="modal-colunas" style="max-width:520px;">
+    <div class="modal-header">
+      <div class="modal-header-info">
+        <h2>Colunas do quadro</h2>
+        <p id="colunas-modal-sub">—</p>
+      </div>
+      <button class="btn-close" id="btn-close-colunas">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </button>
+    </div>
+
+    <div class="modal-body">
+      <div class="colunas-edit-list" id="colunas-edit-list"></div>
+      <div class="etapa-add-row" style="margin-top:12px;">
+        <input type="text" id="nova-coluna-nome" placeholder="Nome da nova coluna..." />
+        <button type="button" class="btn btn-ghost btn-sm" id="btn-add-coluna">Adicionar</button>
+      </div>
+      <p class="colunas-dica">Marque "Conclui" na coluna em que as tarefas terminam: arrastar um card para ela conclui a tarefa.</p>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn btn-ghost" id="btn-fechar-colunas">Fechar</button>
     </div>
   </div>
 </div>

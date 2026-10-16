@@ -56,7 +56,11 @@ const api = {
   atualizarUsuario:(id, u)    => apiFetch("PUT",    `/api/usuarios/${id}`, u),
   deletarUsuario:  (id)       => apiFetch("DELETE", `/api/usuarios/${id}`),
   getEquipes:      ()         => apiFetch("GET",    "/api/equipes"),
-  criarEquipe:     (nome)     => apiFetch("POST",   "/api/equipes", { nome }),
+  criarEquipe:     (nome, membros = []) => apiFetch("POST", "/api/equipes", { nome, membros }),
+  criarColuna:     (equipeId, c) => apiFetch("POST", `/api/equipes/${equipeId}/colunas`, c),
+  atualizarColuna: (id, c)    => apiFetch("PUT",    `/api/colunas/${id}`, c),
+  deletarColuna:   (id)       => apiFetch("DELETE", `/api/colunas/${id}`),
+  ordenarColunas:  (equipeId, ids) => apiFetch("PUT", `/api/equipes/${equipeId}/colunas/ordem`, { ids }),
   renomearEquipe:  (id, nome) => apiFetch("PUT",    `/api/equipes/${id}`, { nome }),
   deletarEquipe:   (id)       => apiFetch("DELETE", `/api/equipes/${id}`),
   salvarMembro:    (id, usuarioId, papel) => apiFetch("PUT", `/api/equipes/${id}/membros`, { usuarioId, papel }),
@@ -129,11 +133,11 @@ function renderNavEquipes() {
     nav.appendChild(el);
   });
 
-  document.getElementById("btn-nova-equipe").classList.toggle("hidden", !state.current?.isAdmin);
 
   const eq = equipeAtual();
   document.getElementById("topbar-titulo").textContent = eq ? `Tarefas · ${eq.nome}` : "Tarefas";
   document.getElementById("btn-equipe-membros").classList.toggle("hidden", !eq);
+  document.getElementById("btn-colunas").classList.toggle("hidden", !souGestorDaEquipe(eq));
   document.getElementById("btn-new-task").disabled = !eq;
 }
 
@@ -502,68 +506,106 @@ function renderFiltroUsuarios() {
 }
 
 // ── Board ─────────────────────────────────────────────────
-const COLUMNS = [
-  { key: "diaria", label: "Tarefas Diárias",  color: "#3b82f6" },
-  { key: "hoje",   label: "Tarefas de Hoje",   color: "#ef4444" },
-  { key: "semana", label: "Tarefas da Semana", color: "#f59e0b" },
-  { key: "mes",    label: "Tarefas do Mês",    color: "var(--green)" },
-];
+// As colunas vêm de cada equipe (equipe.colunas), na ordem definida por
+// quem administra o quadro. Uma coluna "finaliza" mostra as tarefas
+// concluídas; nas demais só aparecem as em aberto.
+function colunasDaEquipe(equipeId) {
+  const equipe = state.equipes.find(e => e.id === equipeId);
+  return equipe ? equipe.colunas : [];
+}
+
+function colunaDaTarefa(t) {
+  const colunas = colunasDaEquipe(t.equipeId);
+  return colunas.find(c => c.id === t.colunaId)
+    || colunas.find(c => !c.finaliza)
+    || colunas[0]
+    || null;
+}
+
+function colunaFinal(equipeId) {
+  return colunasDaEquipe(equipeId).find(c => c.finaliza) || null;
+}
+
+// Ajusta os campos de conclusão quando a tarefa muda para `coluna`.
+function aplicarColuna(t, coluna) {
+  t.colunaId = coluna.id;
+  if (coluna.finaliza && !t.concluida) {
+    t.concluida    = true;
+    t.status       = "concluida";
+    t.concluidoEm  = new Date().toISOString();
+    t.concluidoPor = state.current?.id ?? null;
+  } else if (!coluna.finaliza && t.concluida) {
+    t.concluida = false;
+    t.status    = "pendente";
+  }
+}
+
+async function moverTarefa(t, coluna) {
+  const anterior = { ...t };
+  aplicarColuna(t, coluna);
+  renderBoard();
+  try {
+    Object.assign(t, await api.atualizarTarefa(t.id, t));
+    renderBoard();
+  } catch (err) {
+    Object.assign(t, anterior);
+    renderBoard();
+    toast(err.message, true);
+  }
+}
 
 function renderBoard() {
   const board = document.getElementById("board");
   board.innerHTML = "";
+
+  const eq = equipeAtual();
+  const colunas = eq ? eq.colunas : [];
+  const gestor = souGestorDaEquipe(eq);
+  board.style.setProperty("--ncols", Math.max(colunas.length, 1));
+  board.classList.toggle("com-coluna-nova", gestor);
 
   const daEquipe = tarefasDaEquipeAtual();
   const tarefasFiltradas = state.filtroUsuario !== null
     ? daEquipe.filter(t => t.responsavel === state.filtroUsuario)
     : daEquipe;
 
-  COLUMNS.forEach(col => {
-    const tasks = col.key === "diaria"
-      ? tarefasFiltradas.filter(t => t.prazo === "diaria")
-      : tarefasFiltradas.filter(t => t.prazo === col.key && !t.concluida);
-
-    const count = col.key === "diaria"
-      ? tasks.filter(t => !isDiariaFeitaHoje(t)).length
-      : tasks.length;
+  colunas.forEach(col => {
+    const tasks = tarefasFiltradas.filter(t =>
+      colunaDaTarefa(t)?.id === col.id && (col.finaliza || !t.concluida)
+    );
+    const count = tasks.filter(t =>
+      t.prazo === "diaria" ? !isDiariaFeitaHoje(t) : !t.concluida
+    ).length;
 
     const col_el = document.createElement("div");
     col_el.className = "column";
     col_el.innerHTML = `
       <div class="column-header">
         <div class="column-title">
-          <div class="col-dot" style="background:${col.color}"></div>
-          ${col.label}
+          <div class="col-dot"></div>
+          <span class="column-nome"></span>
         </div>
         <span class="col-count">${count}</span>
       </div>
-      <div class="column-body" id="col-${col.key}"></div>`;
+      <div class="column-body"></div>`;
+    col_el.querySelector(".col-dot").style.background = col.cor;
+    col_el.querySelector(".column-nome").textContent = col.nome;
     board.appendChild(col_el);
 
-    const body = col_el.querySelector(`#col-${col.key}`);
+    const body = col_el.querySelector(".column-body");
 
     body.addEventListener("dragover", e => {
       e.preventDefault();
       body.classList.add("drag-over");
     });
     body.addEventListener("dragleave", () => body.classList.remove("drag-over"));
-    body.addEventListener("drop", async e => {
+    body.addEventListener("drop", e => {
       e.preventDefault();
       body.classList.remove("drag-over");
       const id = Number(e.dataTransfer.getData("text/plain"));
       const t  = state.tarefas.find(x => x.id === id);
-      if (!t || t.prazo === col.key) return;
-
-      const prazoAnterior = t.prazo;
-      t.prazo = col.key;
-      renderBoard();
-      try {
-        await api.atualizarTarefa(t.id, t);
-      } catch (err) {
-        t.prazo = prazoAnterior;
-        renderBoard();
-        toast(err.message, true);
-      }
+      if (!t || colunaDaTarefa(t)?.id === col.id) return;
+      moverTarefa(t, col);
     });
 
     if (tasks.length === 0) {
@@ -576,14 +618,52 @@ function renderBoard() {
           <span>Nenhuma tarefa</span>
         </div>`;
     } else {
-      const sorted = col.key === "diaria"
-        ? [...tasks].sort((a, b) => (isDiariaFeitaHoje(a) ? 1 : 0) - (isDiariaFeitaHoje(b) ? 1 : 0))
-        : tasks;
+      // Diárias já feitas hoje descem para o fim da coluna.
+      const sorted = [...tasks].sort((a, b) => (isDiariaFeitaHoje(a) ? 1 : 0) - (isDiariaFeitaHoje(b) ? 1 : 0));
       sorted.forEach(t => body.appendChild(
-        col.key === "diaria" ? buildDiariaCard(t) : buildCard(t)
+        t.prazo === "diaria" ? buildDiariaCard(t) : buildCard(t)
       ));
     }
+
+    // Criação rápida: digita o nome e Enter cria a tarefa nesta coluna.
+    if (!col.finaliza) {
+      const add = document.createElement("div");
+      add.className = "column-add-task";
+      add.innerHTML = `<input type="text" placeholder="+ Adicionar tarefa" />`;
+      const input = add.querySelector("input");
+      input.addEventListener("keydown", async e => {
+        if (e.key === "Escape") { input.value = ""; input.blur(); return; }
+        if (e.key !== "Enter") return;
+        e.preventDefault();
+        const nome = input.value.trim();
+        if (!nome) return;
+        input.disabled = true;
+        try {
+          const nova = await api.criarTarefa({
+            equipeId: eq.id, colunaId: col.id, nome,
+            prazo: "unica", urgencia: "media", status: "pendente",
+            etapas: [], criadoEm: new Date().toISOString(),
+          });
+          state.tarefas.push(nova);
+          renderBoard();
+          document.querySelectorAll(".column-add-task input")[colunas.filter(c => !c.finaliza).indexOf(col)]?.focus();
+        } catch (err) {
+          input.disabled = false;
+          toast(err.message, true);
+        }
+      });
+      col_el.appendChild(add);
+    }
   });
+
+  if (gestor) {
+    const nova = document.createElement("div");
+    nova.className = "column-nova";
+    nova.innerHTML = `<button type="button">+ Nova coluna</button>`;
+    nova.querySelector("button").addEventListener("click", openColunasModal);
+    board.appendChild(nova);
+  }
+
   renderNavEquipes();
 }
 
@@ -1183,6 +1263,18 @@ function openCreateModal() {
     sel.appendChild(opt);
   });
   sel.value = prevResponsavel;
+
+  const selColuna = document.getElementById("input-coluna");
+  const prevColuna = selColuna.value;
+  selColuna.innerHTML = "";
+  eq.colunas.filter(c => !c.finaliza).forEach(c => {
+    const opt = document.createElement("option");
+    opt.value = c.id;
+    opt.textContent = c.nome;
+    selColuna.appendChild(opt);
+  });
+  if ([...selColuna.options].some(o => o.value === prevColuna)) selColuna.value = prevColuna;
+
   document.getElementById("modal-create-overlay").classList.remove("hidden");
   document.getElementById("input-nome").focus();
 }
@@ -1229,16 +1321,16 @@ function renderEtapasTemp() {
 document.getElementById("btn-save-create").addEventListener("click", async () => {
   const nome      = document.getElementById("input-nome").value.trim();
   const desc      = document.getElementById("input-desc").value.trim();
-  const prazo     = document.getElementById("input-prazo").value;
+  const colunaId  = parseInt(document.getElementById("input-coluna").value) || null;
+  const prazo     = document.getElementById("input-diaria").checked ? "diaria" : "unica";
   const dataPrazo = document.getElementById("input-data-prazo").value || null;
   const urgencia  = document.getElementById("input-urgencia").value;
   const respId    = document.getElementById("input-responsavel").value;
 
   if (!nome)  { toast("Informe o nome da tarefa.", true); return; }
-  if (!prazo) { toast("Selecione o tipo de prazo.", true); return; }
 
   const payload = {
-    equipeId: state.equipeAtual,
+    equipeId: state.equipeAtual, colunaId,
     nome, descricao: desc,
     etapas: etapasTemp.map(e => ({ ...e })),
     prazo, dataPrazo, urgencia,
@@ -1373,17 +1465,33 @@ function openDetail(id) {
     if (e.key === "Enter") { e.preventDefault(); addEtapaDetail(); }
   };
 
-  const selPrazo = document.getElementById("detail-prazo-sel");
-  selPrazo.value = t.prazo;
-  selPrazo.onchange = async () => {
+  const selColuna = document.getElementById("detail-coluna-sel");
+  selColuna.innerHTML = "";
+  colunasDaEquipe(t.equipeId).forEach(c => {
+    const opt = document.createElement("option");
+    opt.value = c.id;
+    opt.textContent = c.nome;
+    selColuna.appendChild(opt);
+  });
+  selColuna.value = colunaDaTarefa(t)?.id ?? "";
+  selColuna.onchange = async () => {
+    const coluna = colunasDaEquipe(t.equipeId).find(c => c.id === parseInt(selColuna.value));
+    if (!coluna) return;
+    await moverTarefa(t, coluna);
+    openDetail(id);
+  };
+
+  const chkDiaria = document.getElementById("detail-diaria");
+  chkDiaria.checked = t.prazo === "diaria";
+  chkDiaria.onchange = async () => {
     const prazoAnterior = t.prazo;
-    t.prazo = selPrazo.value;
+    t.prazo = chkDiaria.checked ? "diaria" : "unica";
     try {
-      await api.atualizarTarefa(t.id, t);
+      await api.patchTarefa(t.id, { prazo: t.prazo });
       renderBoard();
     } catch (err) {
       t.prazo = prazoAnterior;
-      selPrazo.value = prazoAnterior;
+      chkDiaria.checked = prazoAnterior === "diaria";
       toast(err.message, true);
     }
   };
@@ -1479,27 +1587,30 @@ function openDetail(id) {
   btnConcluir.className   = t.concluida ? "btn btn-ghost"  : "btn btn-primary";
 
   btnConcluir.onclick = async () => {
-    const statusAnterior       = t.status;
-    const concluidaAnterior    = t.concluida;
-    const concluidoEmAnterior  = t.concluidoEm;
-    const concluidoPorAnterior = t.concluidoPor;
-    t.concluida = !t.concluida;
-    t.status    = t.concluida ? "concluida" : "pendente";
-    if (t.concluida) {
-      t.concluidoEm  = new Date().toISOString();
-      t.concluidoPor = state.current?.id ?? null;
+    const anterior = { ...t };
+    const colunas  = colunasDaEquipe(t.equipeId);
+    if (!t.concluida) {
+      const final = colunaFinal(t.equipeId);
+      if (final) aplicarColuna(t, final);
+      else {
+        t.concluida    = true;
+        t.status       = "concluida";
+        t.concluidoEm  = new Date().toISOString();
+        t.concluidoPor = state.current?.id ?? null;
+      }
+    } else {
+      const destino = colunaDaTarefa(t)?.finaliza ? colunas.find(c => !c.finaliza) : null;
+      if (destino) aplicarColuna(t, destino);
+      else { t.concluida = false; t.status = "pendente"; }
     }
     try {
-      await api.atualizarTarefa(t.id, t);
+      Object.assign(t, await api.atualizarTarefa(t.id, t));
       closeDetail();
       renderBoard();
       if (document.getElementById("concluded-screen").classList.contains("visible")) renderConcluded();
       toast(t.concluida ? "Tarefa concluída!" : "Tarefa reaberta.");
     } catch (err) {
-      t.status       = statusAnterior;
-      t.concluida    = concluidaAnterior;
-      t.concluidoEm  = concluidoEmAnterior;
-      t.concluidoPor = concluidoPorAnterior;
+      Object.assign(t, anterior);
       toast(err.message, true);
     }
   };
@@ -1619,7 +1730,7 @@ function renderEquipeModal() {
   document.getElementById("equipe-modal-sub").textContent =
     `${eq.membros.length} ${eq.membros.length === 1 ? "membro" : "membros"}`;
   document.querySelectorAll("#modal-equipe .equipe-gestao").forEach(el => el.classList.toggle("hidden", !gestor));
-  document.getElementById("btn-equipe-excluir").classList.toggle("hidden", !state.current.isAdmin);
+  document.getElementById("btn-equipe-excluir").classList.toggle("hidden", !gestor);
   document.getElementById("equipe-nome-input").value = eq.nome;
 
   const list = document.getElementById("equipe-membros-list");
@@ -1746,20 +1857,177 @@ document.getElementById("btn-equipe-excluir").addEventListener("click", async ()
   }
 });
 
-document.getElementById("btn-nova-equipe").addEventListener("click", async () => {
-  const nome = (prompt("Nome da nova equipe:") || "").trim();
-  if (!nome) return;
+// ── Modal: Novo grupo ─────────────────────────────────────
+// Qualquer pessoa monta um grupo com quem quiser, de qualquer departamento.
+let grupoSelecionados = new Set();
+
+function openGrupoModal() {
+  grupoSelecionados = new Set();
+  document.getElementById("grupo-nome").value  = "";
+  document.getElementById("grupo-busca").value = "";
+  renderGrupoPessoas();
+  document.getElementById("modal-grupo-overlay").classList.remove("hidden");
+  document.getElementById("grupo-nome").focus();
+}
+
+function closeGrupoModal() {
+  document.getElementById("modal-grupo-overlay").classList.add("hidden");
+}
+
+function renderGrupoPessoas() {
+  const busca = document.getElementById("grupo-busca").value.trim().toLowerCase();
+  const list = document.getElementById("grupo-pessoas");
+  list.innerHTML = "";
+  state.users
+    .filter(u => u.id !== state.current.id)
+    .filter(u => !busca || u.nome.toLowerCase().includes(busca) || (u.cargo || "").toLowerCase().includes(busca))
+    .forEach(u => {
+      const marcado = grupoSelecionados.has(u.id);
+      const row = document.createElement("label");
+      row.className = "grupo-pessoa" + (marcado ? " selected" : "");
+      row.innerHTML = `
+        <input type="checkbox" ${marcado ? "checked" : ""} />
+        ${avatarHTML(u, "sm")}
+        <div class="membro-nome"><strong></strong><span></span></div>`;
+      row.querySelector("strong").textContent = u.nome;
+      row.querySelector(".membro-nome span").textContent = u.cargo || "";
+      row.querySelector("input").addEventListener("change", e => {
+        if (e.target.checked) grupoSelecionados.add(u.id);
+        else grupoSelecionados.delete(u.id);
+        row.classList.toggle("selected", e.target.checked);
+        atualizarContadorGrupo();
+      });
+      list.appendChild(row);
+    });
+  atualizarContadorGrupo();
+}
+
+function atualizarContadorGrupo() {
+  const n = grupoSelecionados.size + 1; // + quem está criando
+  document.getElementById("grupo-contador").textContent = `· ${n} ${n === 1 ? "pessoa" : "pessoas"}, incluindo você`;
+}
+
+document.getElementById("btn-nova-equipe").addEventListener("click", openGrupoModal);
+document.getElementById("grupo-busca").addEventListener("input", renderGrupoPessoas);
+document.getElementById("btn-close-grupo").addEventListener("click", closeGrupoModal);
+document.getElementById("btn-cancel-grupo").addEventListener("click", closeGrupoModal);
+document.getElementById("modal-grupo-overlay").addEventListener("click", e => {
+  if (e.target === document.getElementById("modal-grupo-overlay")) closeGrupoModal();
+});
+
+document.getElementById("btn-save-grupo").addEventListener("click", async () => {
+  const nome = document.getElementById("grupo-nome").value.trim();
+  if (!nome) { toast("Informe o nome do grupo.", true); return; }
   try {
-    let nova = await api.criarEquipe(nome);
-    // Quem cria entra como admin da equipe, para já poder adicionar as pessoas.
-    nova = await api.salvarMembro(nova.id, state.current.id, "admin");
-    substituirEquipe(nova);
+    const novo = await api.criarEquipe(nome, [...grupoSelecionados]);
+    substituirEquipe(novo);
+    closeGrupoModal();
     showBoardView();
-    escolherEquipe(nova.id);
-    openEquipeModal();
+    escolherEquipe(novo.id);
+    toast(`Grupo ${novo.nome} criado.`);
   } catch (err) {
     toast(err.message, true);
   }
+});
+
+// ── Modal: Colunas do quadro ──────────────────────────────
+function openColunasModal() {
+  if (!equipeAtual()) return;
+  renderColunasModal();
+  document.getElementById("modal-colunas-overlay").classList.remove("hidden");
+}
+
+function closeColunasModal() {
+  document.getElementById("modal-colunas-overlay").classList.add("hidden");
+}
+
+async function salvarLayout(promessa) {
+  try {
+    substituirEquipe(await promessa);
+    renderColunasModal();
+    renderBoard();
+    return true;
+  } catch (err) {
+    toast(err.message, true);
+    renderColunasModal();
+    return false;
+  }
+}
+
+function renderColunasModal() {
+  const eq = equipeAtual();
+  if (!eq) { closeColunasModal(); return; }
+  document.getElementById("colunas-modal-sub").textContent = eq.nome;
+
+  const list = document.getElementById("colunas-edit-list");
+  list.innerHTML = "";
+  eq.colunas.forEach((c, i) => {
+    const row = document.createElement("div");
+    row.className = "coluna-edit-row";
+    row.innerHTML = `
+      <button type="button" class="btn-ordem" data-dir="-1" title="Mover para a esquerda" ${i === 0 ? "disabled" : ""}>◀</button>
+      <button type="button" class="btn-ordem" data-dir="1" title="Mover para a direita" ${i === eq.colunas.length - 1 ? "disabled" : ""}>▶</button>
+      <input type="color" />
+      <input type="text" />
+      <label class="coluna-conclui"><input type="checkbox" /> Conclui</label>
+      <button type="button" class="btn-remove-etapa" title="Excluir coluna">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>`;
+    const inputCor   = row.querySelector('input[type="color"]');
+    const inputNome  = row.querySelector('input[type="text"]');
+    const inputFinal = row.querySelector('.coluna-conclui input');
+    inputCor.value     = c.cor;
+    inputNome.value    = c.nome;
+    inputFinal.checked = c.finaliza;
+
+    const salvar = () => {
+      const nome = inputNome.value.trim();
+      if (!nome) { inputNome.value = c.nome; return; }
+      if (nome === c.nome && inputCor.value === c.cor && inputFinal.checked === c.finaliza) return;
+      salvarLayout(api.atualizarColuna(c.id, { nome, cor: inputCor.value, finaliza: inputFinal.checked }));
+    };
+    inputNome.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); inputNome.blur(); } });
+    inputNome.addEventListener("blur", salvar);
+    inputCor.addEventListener("change", salvar);
+    inputFinal.addEventListener("change", salvar);
+
+    row.querySelectorAll(".btn-ordem").forEach(btn => btn.addEventListener("click", () => {
+      const ids = eq.colunas.map(x => x.id);
+      const j = i + Number(btn.dataset.dir);
+      [ids[i], ids[j]] = [ids[j], ids[i]];
+      salvarLayout(api.ordenarColunas(eq.id, ids));
+    }));
+
+    row.querySelector(".btn-remove-etapa").addEventListener("click", async () => {
+      const ok = await showConfirm(`Excluir a coluna "${c.nome}"?`, { title: "Excluir coluna", confirmLabel: "Excluir" });
+      if (ok) salvarLayout(api.deletarColuna(c.id));
+    });
+
+    list.appendChild(row);
+  });
+}
+
+async function adicionarColuna() {
+  const eq = equipeAtual();
+  const input = document.getElementById("nova-coluna-nome");
+  const nome = input.value.trim();
+  if (!eq || !nome) return;
+  const cores = ["#64748b", "#3b82f6", "#8b5cf6", "#f59e0b", "#ef4444", "#22c55e", "#ec4899"];
+  if (await salvarLayout(api.criarColuna(eq.id, { nome, cor: cores[eq.colunas.length % cores.length], finaliza: false }))) {
+    input.value = "";
+    input.focus();
+  }
+}
+
+document.getElementById("btn-colunas").addEventListener("click", openColunasModal);
+document.getElementById("btn-add-coluna").addEventListener("click", adicionarColuna);
+document.getElementById("nova-coluna-nome").addEventListener("keydown", e => {
+  if (e.key === "Enter") { e.preventDefault(); adicionarColuna(); }
+});
+document.getElementById("btn-close-colunas").addEventListener("click", closeColunasModal);
+document.getElementById("btn-fechar-colunas").addEventListener("click", closeColunasModal);
+document.getElementById("modal-colunas-overlay").addEventListener("click", e => {
+  if (e.target === document.getElementById("modal-colunas-overlay")) closeColunasModal();
 });
 
 // ── Helpers ───────────────────────────────────────────────
@@ -1813,6 +2081,10 @@ document.addEventListener("keydown", e => {
     closeAdminUsuarioModal();
   } else if (!document.getElementById("modal-equipe-overlay").classList.contains("hidden")) {
     closeEquipeModal();
+  } else if (!document.getElementById("modal-grupo-overlay").classList.contains("hidden")) {
+    closeGrupoModal();
+  } else if (!document.getElementById("modal-colunas-overlay").classList.contains("hidden")) {
+    closeColunasModal();
   }
 });
 

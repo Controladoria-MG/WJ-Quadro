@@ -3,10 +3,13 @@ Portal de Tarefas — Backend FastAPI + PostgreSQL
 Os dados ficam em tabelas reais e nunca se perdem entre deploys.
 A conexão é lida da variável de ambiente DATABASE_URL.
 
-Organização: usuários participam de uma ou mais equipes; cada tarefa
-pertence a uma equipe e só é visível/editável por membros dela (e pelos
-administradores gerais). O responsável de uma tarefa precisa ser membro
-da equipe da tarefa.
+Organização: usuários participam de uma ou mais equipes (departamentos ou
+grupos com pessoas de várias áreas); cada tarefa pertence a uma equipe e só
+é visível/editável por membros dela (e pelos administradores gerais). O
+responsável de uma tarefa precisa ser membro da equipe da tarefa.
+
+Cada equipe tem as próprias colunas do quadro (nome, cor e ordem editáveis).
+Uma coluna marcada como "finaliza" conclui a tarefa que entra nela.
 """
 
 from fastapi import FastAPI, HTTPException, Request
@@ -42,6 +45,21 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # Equipe que recebe os usuários e tarefas que já existiam antes das equipes.
 EQUIPE_INICIAL = "Controladoria"
+
+# Colunas que reproduzem o quadro antigo (uma por tipo de prazo).
+COLUNAS_LEGADAS = [
+    ("diaria", "Tarefas Diárias",   "#3b82f6"),
+    ("hoje",   "Tarefas de Hoje",   "#ef4444"),
+    ("semana", "Tarefas da Semana", "#f59e0b"),
+    ("mes",    "Tarefas do Mês",    "#22c55e"),
+]
+
+# Layout inicial de um quadro novo.
+COLUNAS_PADRAO = [
+    ("A fazer",      "#64748b", False),
+    ("Em andamento", "#3b82f6", False),
+    ("Concluído",    "#22c55e", True),
+]
 
 # ── App ────────────────────────────────────────────────────
 app = FastAPI(title="Portal de Tarefas", version="3.0.0")
@@ -131,6 +149,20 @@ def init_db():
             cur.execute("ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS equipe_id INTEGER REFERENCES equipes(id) ON DELETE RESTRICT")
             conn.commit()
 
+            # Colunas do quadro de cada equipe
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS colunas (
+                    id         SERIAL PRIMARY KEY,
+                    equipe_id  INTEGER NOT NULL REFERENCES equipes(id) ON DELETE CASCADE,
+                    nome       TEXT NOT NULL,
+                    cor        TEXT NOT NULL DEFAULT '#3b82f6',
+                    ordem      INTEGER NOT NULL DEFAULT 0,
+                    finaliza   BOOLEAN NOT NULL DEFAULT FALSE
+                )
+            """)
+            cur.execute("ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS coluna_id INTEGER REFERENCES colunas(id) ON DELETE SET NULL")
+            conn.commit()
+
             # Importa usuários do JSON só se a tabela estiver vazia
             cur.execute("SELECT COUNT(*) as c FROM usuarios")
             if cur.fetchone()["c"] == 0:
@@ -190,6 +222,36 @@ def init_db():
                 cur.execute("UPDATE tarefas SET equipe_id = %s WHERE equipe_id IS NULL", (equipe_id,))
                 conn.commit()
 
+            # Equipes sem colunas: as que já tinham tarefas ganham as colunas
+            # antigas (uma por tipo de prazo), as demais o layout padrão.
+            cur.execute("""
+                SELECT e.id, EXISTS(SELECT 1 FROM tarefas t WHERE t.equipe_id = e.id) AS tem_tarefas
+                FROM equipes e
+                WHERE NOT EXISTS (SELECT 1 FROM colunas c WHERE c.equipe_id = e.id)
+            """)
+            for e in cur.fetchall():
+                if e["tem_tarefas"]:
+                    for ordem, (prazo, nome, cor) in enumerate(COLUNAS_LEGADAS):
+                        cur.execute(
+                            "INSERT INTO colunas (equipe_id, nome, cor, ordem) VALUES (%s,%s,%s,%s) RETURNING id",
+                            (e["id"], nome, cor, ordem)
+                        )
+                        coluna_id = cur.fetchone()["id"]
+                        cur.execute(
+                            "UPDATE tarefas SET coluna_id = %s WHERE equipe_id = %s AND prazo = %s AND coluna_id IS NULL",
+                            (coluna_id, e["id"], prazo)
+                        )
+                else:
+                    criar_colunas_padrao(cur, e["id"])
+            conn.commit()
+
+def criar_colunas_padrao(cur, equipe_id: int):
+    for ordem, (nome, cor, finaliza) in enumerate(COLUNAS_PADRAO):
+        cur.execute(
+            "INSERT INTO colunas (equipe_id, nome, cor, ordem, finaliza) VALUES (%s,%s,%s,%s,%s)",
+            (equipe_id, nome, cor, ordem, finaliza)
+        )
+
 def agora_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -201,6 +263,7 @@ def row_to_tarefa(row: dict) -> dict:
     return {
         "id":             row["id"],
         "equipeId":       row["equipe_id"],
+        "colunaId":       row["coluna_id"],
         "nome":           row["nome"],
         "descricao":      row["descricao"] or "",
         "etapas":         etapas or [],
@@ -272,6 +335,23 @@ def validar_responsavel(cur, equipe_id: int, responsavel: Optional[int]):
     if papel_na_equipe(cur, responsavel, equipe_id) is None:
         raise HTTPException(status_code=400, detail="O responsável precisa ser membro da equipe da tarefa.")
 
+def validar_coluna(cur, equipe_id: int, coluna_id: Optional[int]) -> Optional[dict]:
+    if coluna_id is None:
+        return None
+    cur.execute("SELECT * FROM colunas WHERE id = %s", (coluna_id,))
+    coluna = cur.fetchone()
+    if not coluna or coluna["equipe_id"] != equipe_id:
+        raise HTTPException(status_code=400, detail="A coluna não pertence a esta equipe.")
+    return coluna
+
+def primeira_coluna(cur, equipe_id: int) -> Optional[int]:
+    cur.execute(
+        "SELECT id FROM colunas WHERE equipe_id = %s AND NOT finaliza ORDER BY ordem, id LIMIT 1",
+        (equipe_id,)
+    )
+    row = cur.fetchone()
+    return row["id"] if row else None
+
 def carregar_tarefa(cur, tarefa_id: int) -> dict:
     cur.execute("SELECT * FROM tarefas WHERE id = %s", (tarefa_id,))
     row = cur.fetchone()
@@ -288,10 +368,11 @@ class Etapa(BaseModel):
 class Tarefa(BaseModel):
     id: Optional[int] = None
     equipeId: Optional[int] = None
+    colunaId: Optional[int] = None
     nome: str
     descricao: Optional[str] = ""
     etapas: Optional[List[Etapa]] = []
-    prazo: str
+    prazo: Optional[str] = "unica"
     dataPrazo: Optional[str] = None
     urgencia: Optional[str] = "media"
     responsavel: Optional[int] = None
@@ -316,6 +397,15 @@ class Usuario(BaseModel):
 
 class Equipe(BaseModel):
     nome: str
+    membros: Optional[List[int]] = None
+
+class Coluna(BaseModel):
+    nome: str
+    cor: Optional[str] = "#3b82f6"
+    finaliza: Optional[bool] = False
+
+class OrdemColunas(BaseModel):
+    ids: List[int]
 
 class Membro(BaseModel):
     usuarioId: int
@@ -356,6 +446,8 @@ def criar_tarefa(tarefa: Tarefa, request: Request):
                 raise HTTPException(status_code=400, detail="Informe a equipe da tarefa.")
             exigir_membro(cur, usuario, tarefa.equipeId)
             validar_responsavel(cur, tarefa.equipeId, tarefa.responsavel)
+            coluna_id = tarefa.colunaId or primeira_coluna(cur, tarefa.equipeId)
+            validar_coluna(cur, tarefa.equipeId, coluna_id)
 
             criado_em = tarefa.criadoEm or agora_iso()
             etapas_json = json.dumps(
@@ -363,14 +455,14 @@ def criar_tarefa(tarefa: Tarefa, request: Request):
             )
             cur.execute("""
                 INSERT INTO tarefas
-                    (equipe_id, nome, descricao, etapas, prazo, data_prazo, urgencia,
+                    (equipe_id, coluna_id, nome, descricao, etapas, prazo, data_prazo, urgencia,
                      responsavel, status, observacoes, retorno, criado_em,
                      criado_por, concluida, diaria_feita_em)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 RETURNING *
             """, (
-                tarefa.equipeId, tarefa.nome, tarefa.descricao, etapas_json,
-                tarefa.prazo, tarefa.dataPrazo, tarefa.urgencia,
+                tarefa.equipeId, coluna_id, tarefa.nome, tarefa.descricao, etapas_json,
+                tarefa.prazo or "unica", tarefa.dataPrazo, tarefa.urgencia,
                 tarefa.responsavel, tarefa.status, tarefa.observacoes,
                 tarefa.retorno, criado_em, usuario["id"],
                 tarefa.concluida, tarefa.diariaFeitaEm
@@ -392,13 +484,21 @@ def atualizar_tarefa(tarefa_id: int, tarefa: Tarefa, request: Request):
             if equipe_id != atual["equipe_id"]:
                 exigir_membro(cur, usuario, equipe_id)
             validar_responsavel(cur, equipe_id, tarefa.responsavel)
+            if equipe_id == atual["equipe_id"]:
+                coluna_id = tarefa.colunaId or atual["coluna_id"]
+            elif tarefa.colunaId and tarefa.colunaId != atual["coluna_id"]:
+                coluna_id = tarefa.colunaId
+            else:
+                # Mudou de equipe sem escolher coluna: vai para a primeira do novo quadro.
+                coluna_id = primeira_coluna(cur, equipe_id)
+            validar_coluna(cur, equipe_id, coluna_id)
 
             etapas_json = json.dumps(
                 [e.model_dump() for e in tarefa.etapas], ensure_ascii=False
             )
             cur.execute("""
                 UPDATE tarefas SET
-                    equipe_id=%(equipe_id)s,
+                    equipe_id=%(equipe_id)s, coluna_id=%(coluna_id)s,
                     nome=%(nome)s, descricao=%(descricao)s, etapas=%(etapas)s,
                     prazo=%(prazo)s, data_prazo=%(data_prazo)s, urgencia=%(urgencia)s,
                     responsavel=%(responsavel)s, status=%(status)s,
@@ -408,9 +508,9 @@ def atualizar_tarefa(tarefa_id: int, tarefa: Tarefa, request: Request):
                 WHERE id=%(id)s
                 RETURNING *
             """, {
-                "id": tarefa_id, "equipe_id": equipe_id, "nome": tarefa.nome,
+                "id": tarefa_id, "equipe_id": equipe_id, "coluna_id": coluna_id, "nome": tarefa.nome,
                 "descricao": tarefa.descricao, "etapas": etapas_json,
-                "prazo": tarefa.prazo, "data_prazo": tarefa.dataPrazo,
+                "prazo": tarefa.prazo or atual["prazo"], "data_prazo": tarefa.dataPrazo,
                 "urgencia": tarefa.urgencia, "responsavel": tarefa.responsavel,
                 "status": tarefa.status, "observacoes": tarefa.observacoes,
                 "retorno": tarefa.retorno, "concluida": tarefa.concluida,
@@ -430,7 +530,7 @@ def patch_tarefa(tarefa_id: int, campos: dict, request: Request):
         "observacoes": "observacoes", "retorno": "retorno",
         "concluida": "concluida", "diariaFeitaEm": "diaria_feita_em",
         "concluidoEm": "concluido_em", "concluidoPor": "concluido_por",
-        "avisoConfirmado": "aviso_confirmado",
+        "avisoConfirmado": "aviso_confirmado", "colunaId": "coluna_id",
     }
     sets, values = [], []
     for key, val in campos.items():
@@ -453,6 +553,8 @@ def patch_tarefa(tarefa_id: int, campos: dict, request: Request):
             exigir_membro(cur, usuario, atual["equipe_id"])
             if "responsavel" in campos:
                 validar_responsavel(cur, atual["equipe_id"], campos["responsavel"])
+            if "colunaId" in campos:
+                validar_coluna(cur, atual["equipe_id"], campos["colunaId"])
 
             cur.execute(
                 f"UPDATE tarefas SET {', '.join(sets)} WHERE id = %s RETURNING *",
@@ -490,12 +592,21 @@ def equipes_com_membros(cur, equipe_ids: Optional[List[int]] = None) -> List[dic
         ([e["id"] for e in equipes],)
     )
     membros = cur.fetchall()
+    cur.execute(
+        "SELECT * FROM colunas WHERE equipe_id = ANY(%s) ORDER BY ordem, id",
+        ([e["id"] for e in equipes],)
+    )
+    colunas = cur.fetchall()
     return [{
         "id": e["id"],
         "nome": e["nome"],
         "membros": [
             {"usuarioId": m["usuario_id"], "papel": m["papel"]}
             for m in membros if m["equipe_id"] == e["id"]
+        ],
+        "colunas": [
+            {"id": c["id"], "nome": c["nome"], "cor": c["cor"], "finaliza": c["finaliza"]}
+            for c in colunas if c["equipe_id"] == e["id"]
         ],
     } for e in equipes]
 
@@ -519,8 +630,9 @@ def criar_equipe(equipe: Equipe, request: Request):
         raise HTTPException(status_code=400, detail="Informe o nome da equipe.")
     with get_conn() as conn:
         with conn.cursor() as cur:
+            # Qualquer pessoa pode montar um grupo, inclusive com gente de
+            # outros departamentos; quem cria vira administrador do grupo.
             usuario = exigir_usuario(request, cur)
-            exigir_admin(usuario)
             cur.execute("SELECT 1 FROM equipes WHERE lower(nome) = lower(%s)", (nome,))
             if cur.fetchone():
                 raise HTTPException(status_code=400, detail="Já existe uma equipe com esse nome.")
@@ -529,6 +641,17 @@ def criar_equipe(equipe: Equipe, request: Request):
                 (nome, agora_iso())
             )
             equipe_id = cur.fetchone()["id"]
+            cur.execute(
+                "INSERT INTO equipe_membros (equipe_id, usuario_id, papel) VALUES (%s, %s, 'admin')",
+                (equipe_id, usuario["id"])
+            )
+            for uid in set(equipe.membros or []) - {usuario["id"]}:
+                cur.execute(
+                    """INSERT INTO equipe_membros (equipe_id, usuario_id, papel)
+                       SELECT %s, id, 'membro' FROM usuarios WHERE id = %s""",
+                    (equipe_id, uid)
+                )
+            criar_colunas_padrao(cur, equipe_id)
             conn.commit()
             return equipes_com_membros(cur, [equipe_id])[0]
 
@@ -557,7 +680,7 @@ def deletar_equipe(equipe_id: int, request: Request):
     with get_conn() as conn:
         with conn.cursor() as cur:
             usuario = exigir_usuario(request, cur)
-            exigir_admin(usuario)
+            exigir_gestor_equipe(cur, usuario, equipe_id)
             cur.execute("SELECT COUNT(*) AS c FROM tarefas WHERE equipe_id = %s", (equipe_id,))
             if cur.fetchone()["c"] > 0:
                 raise HTTPException(
@@ -609,6 +732,85 @@ def remover_membro(equipe_id: int, usuario_id: int, request: Request):
                 "UPDATE tarefas SET responsavel = NULL WHERE equipe_id = %s AND responsavel = %s",
                 (equipe_id, usuario_id)
             )
+            conn.commit()
+            return equipes_com_membros(cur, [equipe_id])[0]
+
+# ══════════════════════════════════════════════════════════
+# ROTAS — COLUNAS DO QUADRO
+# ══════════════════════════════════════════════════════════
+
+def carregar_coluna(cur, coluna_id: int) -> dict:
+    cur.execute("SELECT * FROM colunas WHERE id = %s", (coluna_id,))
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Coluna não encontrada")
+    return row
+
+
+@app.post("/api/equipes/{equipe_id}/colunas", status_code=201)
+def criar_coluna(equipe_id: int, coluna: Coluna, request: Request):
+    nome = coluna.nome.strip()
+    if not nome:
+        raise HTTPException(status_code=400, detail="Informe o nome da coluna.")
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            exigir_gestor_equipe(cur, exigir_usuario(request, cur), equipe_id)
+            cur.execute("SELECT COALESCE(MAX(ordem), -1) + 1 AS prox FROM colunas WHERE equipe_id = %s", (equipe_id,))
+            cur.execute(
+                "INSERT INTO colunas (equipe_id, nome, cor, ordem, finaliza) VALUES (%s,%s,%s,%s,%s)",
+                (equipe_id, nome, coluna.cor, cur.fetchone()["prox"], bool(coluna.finaliza))
+            )
+            conn.commit()
+            return equipes_com_membros(cur, [equipe_id])[0]
+
+
+@app.put("/api/colunas/{coluna_id}")
+def atualizar_coluna(coluna_id: int, coluna: Coluna, request: Request):
+    nome = coluna.nome.strip()
+    if not nome:
+        raise HTTPException(status_code=400, detail="Informe o nome da coluna.")
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            atual = carregar_coluna(cur, coluna_id)
+            exigir_gestor_equipe(cur, exigir_usuario(request, cur), atual["equipe_id"])
+            cur.execute(
+                "UPDATE colunas SET nome = %s, cor = %s, finaliza = %s WHERE id = %s",
+                (nome, coluna.cor, bool(coluna.finaliza), coluna_id)
+            )
+            conn.commit()
+            return equipes_com_membros(cur, [atual["equipe_id"]])[0]
+
+
+@app.delete("/api/colunas/{coluna_id}")
+def deletar_coluna(coluna_id: int, request: Request):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            atual = carregar_coluna(cur, coluna_id)
+            exigir_gestor_equipe(cur, exigir_usuario(request, cur), atual["equipe_id"])
+            cur.execute("SELECT COUNT(*) AS c FROM tarefas WHERE coluna_id = %s", (coluna_id,))
+            if cur.fetchone()["c"] > 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail="A coluna ainda tem tarefas. Mova as tarefas para outra coluna antes."
+                )
+            cur.execute("SELECT COUNT(*) AS c FROM colunas WHERE equipe_id = %s", (atual["equipe_id"],))
+            if cur.fetchone()["c"] <= 1:
+                raise HTTPException(status_code=400, detail="O quadro precisa ter pelo menos uma coluna.")
+            cur.execute("DELETE FROM colunas WHERE id = %s", (coluna_id,))
+            conn.commit()
+            return equipes_com_membros(cur, [atual["equipe_id"]])[0]
+
+
+@app.put("/api/equipes/{equipe_id}/colunas/ordem")
+def ordenar_colunas(equipe_id: int, ordem: OrdemColunas, request: Request):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            exigir_gestor_equipe(cur, exigir_usuario(request, cur), equipe_id)
+            cur.execute("SELECT id FROM colunas WHERE equipe_id = %s", (equipe_id,))
+            if {r["id"] for r in cur.fetchall()} != set(ordem.ids):
+                raise HTTPException(status_code=400, detail="Lista de colunas desatualizada. Recarregue a página.")
+            for i, cid in enumerate(ordem.ids):
+                cur.execute("UPDATE colunas SET ordem = %s WHERE id = %s", (i, cid))
             conn.commit()
             return equipes_com_membros(cur, [equipe_id])[0]
 
