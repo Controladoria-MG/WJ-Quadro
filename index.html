@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Portal da Controladoria</title>
+  <title>Portal de Tarefas</title>
   <link rel="stylesheet" href="static/style.css" />
 </head>
 <body>
@@ -22,7 +22,7 @@
           <path d="M2 12l10 5 10-5"/>
         </svg>
       </div>
-      <span>Portal da Controladoria</span>
+      <span>Portal de Tarefas</span>
     </div>
 
     <h1 class="login-title">Quem está acessando?</h1>
@@ -70,18 +70,19 @@
           <path d="M2 12l10 5 10-5"/>
         </svg>
       </div>
-      <span>Controladoria</span>
+      <span>Portal de Tarefas</span>
     </div>
 
-    <div class="nav-section-label">Menu</div>
-
-    <div class="nav-item active" id="nav-board">
-      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
-        <rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
-      </svg>
-      Tarefas da Controladoria
+    <div class="nav-section-label nav-section-row">
+      Equipes
+      <button class="btn-nav-add hidden" id="btn-nova-equipe" title="Nova equipe">+</button>
     </div>
+
+    <div id="nav-equipes">
+      <!-- renderizado via JS -->
+    </div>
+
+    <div class="nav-section-label" style="margin-top:18px;">Menu</div>
 
     <div class="nav-item hidden" id="nav-admin">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -139,10 +140,17 @@
     <!-- Topbar -->
     <div id="topbar">
       <div class="topbar-title">
-        <h1>Tarefas da Controladoria</h1>
+        <h1 id="topbar-titulo">Tarefas</h1>
         <p>Crie e acompanhe tarefas internas da equipe</p>
       </div>
       <div class="topbar-actions">
+        <button class="btn btn-ghost" id="btn-equipe-membros">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+            <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+          </svg>
+          Membros
+        </button>
         <button class="btn btn-ghost" id="btn-concluded">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <polyline points="20 6 9 17 4 12"/>
@@ -202,7 +210,7 @@
           <table class="admin-table">
             <thead>
               <tr>
-                <th>ID</th><th>Nome</th><th>Prazo</th><th>Status</th>
+                <th>ID</th><th>Equipe</th><th>Nome</th><th>Prazo</th><th>Status</th>
                 <th>Urgência</th><th>Responsável</th><th>Concluída</th><th>Ações</th>
               </tr>
             </thead>
@@ -449,9 +457,15 @@
     </div>
 
     <div class="modal-body">
-      <div class="form-group">
-        <label class="form-label">Nome</label>
-        <input type="text" id="admin-t-nome" />
+      <div class="field-row">
+        <div class="form-group">
+          <label class="form-label">Nome</label>
+          <input type="text" id="admin-t-nome" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Equipe</label>
+          <select id="admin-t-equipe"></select>
+        </div>
       </div>
       <div class="form-group">
         <label class="form-label">Descrição</label>
@@ -614,6 +628,53 @@
     </div>
     <div class="modal-footer">
       <button class="btn btn-primary" id="btn-aviso-ciente">Ciente</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════
+     MODAL: Equipe (membros)
+══════════════════════════════════════════════════════ -->
+<div class="modal-overlay hidden" id="modal-equipe-overlay">
+  <div class="modal" id="modal-equipe" style="max-width:480px;">
+    <div class="modal-header">
+      <div class="modal-header-info">
+        <h2 id="equipe-modal-titulo">Equipe</h2>
+        <p id="equipe-modal-sub">Membros da equipe</p>
+      </div>
+      <button class="btn-close" id="btn-close-equipe">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </button>
+    </div>
+
+    <div class="modal-body">
+      <div class="form-group equipe-gestao">
+        <label class="form-label">Nome da equipe</label>
+        <div class="etapa-add-row">
+          <input type="text" id="equipe-nome-input" />
+          <button type="button" class="btn btn-ghost btn-sm" id="btn-equipe-renomear">Salvar</button>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Membros</label>
+        <div class="membros-list" id="equipe-membros-list"></div>
+      </div>
+
+      <div class="form-group equipe-gestao">
+        <label class="form-label">Adicionar membro</label>
+        <div class="etapa-add-row">
+          <select id="equipe-add-usuario"></select>
+          <button type="button" class="btn btn-ghost btn-sm" id="btn-equipe-add-membro">Adicionar</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn btn-danger hidden" id="btn-equipe-excluir">Excluir equipe</button>
+      <button class="btn btn-ghost" id="btn-equipe-fechar">Fechar</button>
     </div>
   </div>
 </div>

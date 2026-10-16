@@ -1,10 +1,15 @@
 """
-Portal da Controladoria — Backend FastAPI + PostgreSQL
+Portal de Tarefas — Backend FastAPI + PostgreSQL
 Os dados ficam em tabelas reais e nunca se perdem entre deploys.
 A conexão é lida da variável de ambiente DATABASE_URL.
+
+Organização: usuários participam de uma ou mais equipes; cada tarefa
+pertence a uma equipe e só é visível/editável por membros dela (e pelos
+administradores gerais). O responsável de uma tarefa precisa ser membro
+da equipe da tarefa.
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,8 +22,14 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 from dotenv import load_dotenv
 
+try:
+    from .auth import usuario_atual_id
+except ImportError:
+    from auth import usuario_atual_id
+
 # Carrega backend/.env se existir (uso local — em produção a env var
 # já vem definida pelo Render, o load_dotenv() vira um no-op).
+# override=False: uma DATABASE_URL já exportada no ambiente tem prioridade.
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 
 # ── Config ─────────────────────────────────────────────────
@@ -29,8 +40,11 @@ if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
+# Equipe que recebe os usuários e tarefas que já existiam antes das equipes.
+EQUIPE_INICIAL = "Controladoria"
+
 # ── App ────────────────────────────────────────────────────
-app = FastAPI(title="Portal da Controladoria", version="2.0.0")
+app = FastAPI(title="Portal de Tarefas", version="3.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -98,6 +112,25 @@ def init_db():
                 cur.execute("UPDATE tarefas SET aviso_confirmado = TRUE")
             conn.commit()
 
+            # Equipes e participação (um usuário pode estar em várias equipes)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS equipes (
+                    id         SERIAL PRIMARY KEY,
+                    nome       TEXT NOT NULL UNIQUE,
+                    criado_em  TEXT
+                )
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS equipe_membros (
+                    equipe_id   INTEGER NOT NULL REFERENCES equipes(id) ON DELETE CASCADE,
+                    usuario_id  INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+                    papel       TEXT NOT NULL DEFAULT 'membro',
+                    PRIMARY KEY (equipe_id, usuario_id)
+                )
+            """)
+            cur.execute("ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS equipe_id INTEGER REFERENCES equipes(id) ON DELETE RESTRICT")
+            conn.commit()
+
             # Importa usuários do JSON só se a tabela estiver vazia
             cur.execute("SELECT COUNT(*) as c FROM usuarios")
             if cur.fetchone()["c"] == 0:
@@ -140,6 +173,26 @@ def init_db():
                     cur.execute("SELECT setval('tarefas_id_seq', (SELECT MAX(id) FROM tarefas))")
                     conn.commit()
 
+            # Migração para equipes: na primeira vez, tudo o que já existia
+            # vira a equipe inicial, com todos os usuários atuais como membros.
+            cur.execute("SELECT COUNT(*) as c FROM equipes")
+            if cur.fetchone()["c"] == 0:
+                cur.execute(
+                    "INSERT INTO equipes (nome, criado_em) VALUES (%s, %s) RETURNING id",
+                    (EQUIPE_INICIAL, agora_iso())
+                )
+                equipe_id = cur.fetchone()["id"]
+                cur.execute("""
+                    INSERT INTO equipe_membros (equipe_id, usuario_id, papel)
+                    SELECT %s, id, CASE WHEN is_admin THEN 'admin' ELSE 'membro' END
+                    FROM usuarios
+                """, (equipe_id,))
+                cur.execute("UPDATE tarefas SET equipe_id = %s WHERE equipe_id IS NULL", (equipe_id,))
+                conn.commit()
+
+def agora_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
 def row_to_tarefa(row: dict) -> dict:
     """Converte uma linha do banco para o formato esperado pelo frontend."""
     etapas = row["etapas"]
@@ -147,6 +200,7 @@ def row_to_tarefa(row: dict) -> dict:
         etapas = json.loads(etapas)
     return {
         "id":             row["id"],
+        "equipeId":       row["equipe_id"],
         "nome":           row["nome"],
         "descricao":      row["descricao"] or "",
         "etapas":         etapas or [],
@@ -176,6 +230,55 @@ def row_to_usuario(row: dict) -> dict:
         "fotoPerfil": row.get("foto_perfil"),
     }
 
+# ── Permissões ─────────────────────────────────────────────
+def exigir_usuario(request: Request, cur) -> dict:
+    """Devolve a linha do usuário logado ou responde 401."""
+    uid = usuario_atual_id(request)
+    if uid is not None:
+        cur.execute("SELECT * FROM usuarios WHERE id = %s", (uid,))
+        row = cur.fetchone()
+        if row:
+            return row
+    raise HTTPException(status_code=401, detail="Sessão expirada. Entre novamente.")
+
+def exigir_admin(usuario: dict):
+    if not usuario["is_admin"]:
+        raise HTTPException(status_code=403, detail="Apenas administradores podem fazer isso.")
+
+def papel_na_equipe(cur, usuario_id: int, equipe_id: int) -> Optional[str]:
+    cur.execute(
+        "SELECT papel FROM equipe_membros WHERE equipe_id = %s AND usuario_id = %s",
+        (equipe_id, usuario_id)
+    )
+    row = cur.fetchone()
+    return row["papel"] if row else None
+
+def exigir_membro(cur, usuario: dict, equipe_id: Optional[int]):
+    if usuario["is_admin"]:
+        return
+    if equipe_id is None or papel_na_equipe(cur, usuario["id"], equipe_id) is None:
+        raise HTTPException(status_code=403, detail="Você não faz parte desta equipe.")
+
+def exigir_gestor_equipe(cur, usuario: dict, equipe_id: int):
+    """Administrador geral ou administrador daquela equipe."""
+    if usuario["is_admin"]:
+        return
+    if papel_na_equipe(cur, usuario["id"], equipe_id) != "admin":
+        raise HTTPException(status_code=403, detail="Apenas administradores da equipe podem fazer isso.")
+
+def validar_responsavel(cur, equipe_id: int, responsavel: Optional[int]):
+    if responsavel is None:
+        return
+    if papel_na_equipe(cur, responsavel, equipe_id) is None:
+        raise HTTPException(status_code=400, detail="O responsável precisa ser membro da equipe da tarefa.")
+
+def carregar_tarefa(cur, tarefa_id: int) -> dict:
+    cur.execute("SELECT * FROM tarefas WHERE id = %s", (tarefa_id,))
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Tarefa não encontrada")
+    return row
+
 # ── Models ─────────────────────────────────────────────────
 class Etapa(BaseModel):
     id: int
@@ -184,6 +287,7 @@ class Etapa(BaseModel):
 
 class Tarefa(BaseModel):
     id: Optional[int] = None
+    equipeId: Optional[int] = None
     nome: str
     descricao: Optional[str] = ""
     etapas: Optional[List[Etapa]] = []
@@ -210,6 +314,13 @@ class Usuario(BaseModel):
     isAdmin: Optional[bool] = False
     fotoPerfil: Optional[str] = None
 
+class Equipe(BaseModel):
+    nome: str
+
+class Membro(BaseModel):
+    usuarioId: int
+    papel: Optional[str] = "membro"
+
 # ── Startup ────────────────────────────────────────────────
 @app.on_event("startup")
 def startup():
@@ -221,33 +332,47 @@ def startup():
 # ══════════════════════════════════════════════════════════
 
 @app.get("/api/tarefas")
-def listar_tarefas():
+def listar_tarefas(request: Request):
     with get_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT * FROM tarefas ORDER BY id")
+            usuario = exigir_usuario(request, cur)
+            if usuario["is_admin"]:
+                cur.execute("SELECT * FROM tarefas ORDER BY id")
+            else:
+                cur.execute("""
+                    SELECT t.* FROM tarefas t
+                    JOIN equipe_membros m ON m.equipe_id = t.equipe_id AND m.usuario_id = %s
+                    ORDER BY t.id
+                """, (usuario["id"],))
             return [row_to_tarefa(r) for r in cur.fetchall()]
 
 
 @app.post("/api/tarefas", status_code=201)
-def criar_tarefa(tarefa: Tarefa):
+def criar_tarefa(tarefa: Tarefa, request: Request):
     with get_conn() as conn:
         with conn.cursor() as cur:
-            criado_em = tarefa.criadoEm or datetime.now(timezone.utc).isoformat()
+            usuario = exigir_usuario(request, cur)
+            if tarefa.equipeId is None:
+                raise HTTPException(status_code=400, detail="Informe a equipe da tarefa.")
+            exigir_membro(cur, usuario, tarefa.equipeId)
+            validar_responsavel(cur, tarefa.equipeId, tarefa.responsavel)
+
+            criado_em = tarefa.criadoEm or agora_iso()
             etapas_json = json.dumps(
                 [e.model_dump() for e in tarefa.etapas], ensure_ascii=False
             )
             cur.execute("""
                 INSERT INTO tarefas
-                    (nome, descricao, etapas, prazo, data_prazo, urgencia,
+                    (equipe_id, nome, descricao, etapas, prazo, data_prazo, urgencia,
                      responsavel, status, observacoes, retorno, criado_em,
                      criado_por, concluida, diaria_feita_em)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 RETURNING *
             """, (
-                tarefa.nome, tarefa.descricao, etapas_json,
+                tarefa.equipeId, tarefa.nome, tarefa.descricao, etapas_json,
                 tarefa.prazo, tarefa.dataPrazo, tarefa.urgencia,
                 tarefa.responsavel, tarefa.status, tarefa.observacoes,
-                tarefa.retorno, criado_em, tarefa.criadoPor,
+                tarefa.retorno, criado_em, usuario["id"],
                 tarefa.concluida, tarefa.diariaFeitaEm
             ))
             conn.commit()
@@ -255,14 +380,25 @@ def criar_tarefa(tarefa: Tarefa):
 
 
 @app.put("/api/tarefas/{tarefa_id}")
-def atualizar_tarefa(tarefa_id: int, tarefa: Tarefa):
+def atualizar_tarefa(tarefa_id: int, tarefa: Tarefa, request: Request):
     with get_conn() as conn:
         with conn.cursor() as cur:
+            usuario = exigir_usuario(request, cur)
+            atual = carregar_tarefa(cur, tarefa_id)
+            exigir_membro(cur, usuario, atual["equipe_id"])
+
+            # Trocar a tarefa de equipe exige ser membro da equipe de destino.
+            equipe_id = tarefa.equipeId or atual["equipe_id"]
+            if equipe_id != atual["equipe_id"]:
+                exigir_membro(cur, usuario, equipe_id)
+            validar_responsavel(cur, equipe_id, tarefa.responsavel)
+
             etapas_json = json.dumps(
                 [e.model_dump() for e in tarefa.etapas], ensure_ascii=False
             )
             cur.execute("""
                 UPDATE tarefas SET
+                    equipe_id=%(equipe_id)s,
                     nome=%(nome)s, descricao=%(descricao)s, etapas=%(etapas)s,
                     prazo=%(prazo)s, data_prazo=%(data_prazo)s, urgencia=%(urgencia)s,
                     responsavel=%(responsavel)s, status=%(status)s,
@@ -272,7 +408,7 @@ def atualizar_tarefa(tarefa_id: int, tarefa: Tarefa):
                 WHERE id=%(id)s
                 RETURNING *
             """, {
-                "id": tarefa_id, "nome": tarefa.nome,
+                "id": tarefa_id, "equipe_id": equipe_id, "nome": tarefa.nome,
                 "descricao": tarefa.descricao, "etapas": etapas_json,
                 "prazo": tarefa.prazo, "data_prazo": tarefa.dataPrazo,
                 "urgencia": tarefa.urgencia, "responsavel": tarefa.responsavel,
@@ -282,14 +418,11 @@ def atualizar_tarefa(tarefa_id: int, tarefa: Tarefa):
                 "concluido_em": tarefa.concluidoEm, "concluido_por": tarefa.concluidoPor,
             })
             conn.commit()
-            row = cur.fetchone()
-            if not row:
-                raise HTTPException(status_code=404, detail="Tarefa não encontrada")
-            return row_to_tarefa(row)
+            return row_to_tarefa(cur.fetchone())
 
 
 @app.patch("/api/tarefas/{tarefa_id}")
-def patch_tarefa(tarefa_id: int, campos: dict):
+def patch_tarefa(tarefa_id: int, campos: dict, request: Request):
     col_map = {
         "nome": "nome", "descricao": "descricao", "etapas": "etapas",
         "prazo": "prazo", "dataPrazo": "data_prazo", "urgencia": "urgencia",
@@ -315,26 +448,169 @@ def patch_tarefa(tarefa_id: int, campos: dict):
     values.append(tarefa_id)
     with get_conn() as conn:
         with conn.cursor() as cur:
+            usuario = exigir_usuario(request, cur)
+            atual = carregar_tarefa(cur, tarefa_id)
+            exigir_membro(cur, usuario, atual["equipe_id"])
+            if "responsavel" in campos:
+                validar_responsavel(cur, atual["equipe_id"], campos["responsavel"])
+
             cur.execute(
                 f"UPDATE tarefas SET {', '.join(sets)} WHERE id = %s RETURNING *",
                 values
             )
             conn.commit()
-            row = cur.fetchone()
-            if not row:
-                raise HTTPException(status_code=404, detail="Tarefa não encontrada")
-            return row_to_tarefa(row)
+            return row_to_tarefa(cur.fetchone())
 
 
 @app.delete("/api/tarefas/{tarefa_id}", status_code=204)
-def deletar_tarefa(tarefa_id: int):
+def deletar_tarefa(tarefa_id: int, request: Request):
     with get_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute("DELETE FROM tarefas WHERE id = %s RETURNING id", (tarefa_id,))
+            usuario = exigir_usuario(request, cur)
+            atual = carregar_tarefa(cur, tarefa_id)
+            exigir_membro(cur, usuario, atual["equipe_id"])
+            cur.execute("DELETE FROM tarefas WHERE id = %s", (tarefa_id,))
             conn.commit()
-            if not cur.fetchone():
-                raise HTTPException(status_code=404, detail="Tarefa não encontrada")
     return None
+
+# ══════════════════════════════════════════════════════════
+# ROTAS — EQUIPES
+# ══════════════════════════════════════════════════════════
+
+def equipes_com_membros(cur, equipe_ids: Optional[List[int]] = None) -> List[dict]:
+    if equipe_ids is None:
+        cur.execute("SELECT * FROM equipes ORDER BY nome")
+    else:
+        cur.execute("SELECT * FROM equipes WHERE id = ANY(%s) ORDER BY nome", (equipe_ids,))
+    equipes = cur.fetchall()
+    if not equipes:
+        return []
+    cur.execute(
+        "SELECT * FROM equipe_membros WHERE equipe_id = ANY(%s)",
+        ([e["id"] for e in equipes],)
+    )
+    membros = cur.fetchall()
+    return [{
+        "id": e["id"],
+        "nome": e["nome"],
+        "membros": [
+            {"usuarioId": m["usuario_id"], "papel": m["papel"]}
+            for m in membros if m["equipe_id"] == e["id"]
+        ],
+    } for e in equipes]
+
+
+@app.get("/api/equipes")
+def listar_equipes(request: Request):
+    """Equipes do usuário logado (todas, para administradores gerais)."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            usuario = exigir_usuario(request, cur)
+            if usuario["is_admin"]:
+                return equipes_com_membros(cur)
+            cur.execute("SELECT equipe_id FROM equipe_membros WHERE usuario_id = %s", (usuario["id"],))
+            return equipes_com_membros(cur, [r["equipe_id"] for r in cur.fetchall()])
+
+
+@app.post("/api/equipes", status_code=201)
+def criar_equipe(equipe: Equipe, request: Request):
+    nome = equipe.nome.strip()
+    if not nome:
+        raise HTTPException(status_code=400, detail="Informe o nome da equipe.")
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            usuario = exigir_usuario(request, cur)
+            exigir_admin(usuario)
+            cur.execute("SELECT 1 FROM equipes WHERE lower(nome) = lower(%s)", (nome,))
+            if cur.fetchone():
+                raise HTTPException(status_code=400, detail="Já existe uma equipe com esse nome.")
+            cur.execute(
+                "INSERT INTO equipes (nome, criado_em) VALUES (%s, %s) RETURNING id",
+                (nome, agora_iso())
+            )
+            equipe_id = cur.fetchone()["id"]
+            conn.commit()
+            return equipes_com_membros(cur, [equipe_id])[0]
+
+
+@app.put("/api/equipes/{equipe_id}")
+def renomear_equipe(equipe_id: int, equipe: Equipe, request: Request):
+    nome = equipe.nome.strip()
+    if not nome:
+        raise HTTPException(status_code=400, detail="Informe o nome da equipe.")
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            usuario = exigir_usuario(request, cur)
+            exigir_gestor_equipe(cur, usuario, equipe_id)
+            cur.execute("SELECT 1 FROM equipes WHERE lower(nome) = lower(%s) AND id <> %s", (nome, equipe_id))
+            if cur.fetchone():
+                raise HTTPException(status_code=400, detail="Já existe uma equipe com esse nome.")
+            cur.execute("UPDATE equipes SET nome = %s WHERE id = %s RETURNING id", (nome, equipe_id))
+            if not cur.fetchone():
+                raise HTTPException(status_code=404, detail="Equipe não encontrada")
+            conn.commit()
+            return equipes_com_membros(cur, [equipe_id])[0]
+
+
+@app.delete("/api/equipes/{equipe_id}", status_code=204)
+def deletar_equipe(equipe_id: int, request: Request):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            usuario = exigir_usuario(request, cur)
+            exigir_admin(usuario)
+            cur.execute("SELECT COUNT(*) AS c FROM tarefas WHERE equipe_id = %s", (equipe_id,))
+            if cur.fetchone()["c"] > 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail="A equipe ainda tem tarefas. Exclua ou mova as tarefas antes."
+                )
+            cur.execute("DELETE FROM equipes WHERE id = %s RETURNING id", (equipe_id,))
+            if not cur.fetchone():
+                raise HTTPException(status_code=404, detail="Equipe não encontrada")
+            conn.commit()
+    return None
+
+
+@app.put("/api/equipes/{equipe_id}/membros")
+def salvar_membro(equipe_id: int, membro: Membro, request: Request):
+    """Adiciona o usuário à equipe ou muda o papel dele."""
+    if membro.papel not in ("admin", "membro"):
+        raise HTTPException(status_code=400, detail="Papel inválido.")
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            usuario = exigir_usuario(request, cur)
+            exigir_gestor_equipe(cur, usuario, equipe_id)
+            cur.execute("SELECT 1 FROM equipes WHERE id = %s", (equipe_id,))
+            if not cur.fetchone():
+                raise HTTPException(status_code=404, detail="Equipe não encontrada")
+            cur.execute("SELECT 1 FROM usuarios WHERE id = %s", (membro.usuarioId,))
+            if not cur.fetchone():
+                raise HTTPException(status_code=404, detail="Usuário não encontrado")
+            cur.execute("""
+                INSERT INTO equipe_membros (equipe_id, usuario_id, papel) VALUES (%s, %s, %s)
+                ON CONFLICT (equipe_id, usuario_id) DO UPDATE SET papel = EXCLUDED.papel
+            """, (equipe_id, membro.usuarioId, membro.papel))
+            conn.commit()
+            return equipes_com_membros(cur, [equipe_id])[0]
+
+
+@app.delete("/api/equipes/{equipe_id}/membros/{usuario_id}")
+def remover_membro(equipe_id: int, usuario_id: int, request: Request):
+    """Tira o usuário da equipe; as tarefas dele nessa equipe ficam sem responsável."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            usuario = exigir_usuario(request, cur)
+            exigir_gestor_equipe(cur, usuario, equipe_id)
+            cur.execute(
+                "DELETE FROM equipe_membros WHERE equipe_id = %s AND usuario_id = %s",
+                (equipe_id, usuario_id)
+            )
+            cur.execute(
+                "UPDATE tarefas SET responsavel = NULL WHERE equipe_id = %s AND responsavel = %s",
+                (equipe_id, usuario_id)
+            )
+            conn.commit()
+            return equipes_com_membros(cur, [equipe_id])[0]
 
 # ══════════════════════════════════════════════════════════
 # ROTAS — USUÁRIOS
@@ -342,9 +618,10 @@ def deletar_tarefa(tarefa_id: int):
 
 @app.get("/api/usuarios")
 def listar_usuarios():
+    # Aberta: a tela de login (modo simples) precisa da lista antes de haver sessão.
     with get_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT * FROM usuarios ORDER BY id")
+            cur.execute("SELECT * FROM usuarios ORDER BY nome")
             return [row_to_usuario(r) for r in cur.fetchall()]
 
 
@@ -366,9 +643,14 @@ def criar_usuario(usuario: Usuario):
 
 
 @app.put("/api/usuarios/{usuario_id}")
-def atualizar_usuario(usuario_id: int, usuario: Usuario):
+def atualizar_usuario(usuario_id: int, usuario: Usuario, request: Request):
     with get_conn() as conn:
         with conn.cursor() as cur:
+            atual = exigir_usuario(request, cur)
+            if atual["id"] != usuario_id:
+                exigir_admin(atual)
+            # Só um administrador geral pode conceder ou retirar o acesso de admin.
+            is_admin = usuario.isAdmin if atual["is_admin"] else atual["is_admin"]
             cur.execute("""
                 UPDATE usuarios SET
                     nome=%(nome)s, cargo=%(cargo)s, avatar=%(avatar)s, is_admin=%(is_admin)s,
@@ -378,7 +660,7 @@ def atualizar_usuario(usuario_id: int, usuario: Usuario):
             """, {
                 "id": usuario_id, "nome": usuario.nome,
                 "cargo": usuario.cargo, "avatar": usuario.avatar,
-                "is_admin": usuario.isAdmin, "foto_perfil": usuario.fotoPerfil,
+                "is_admin": is_admin, "foto_perfil": usuario.fotoPerfil,
             })
             conn.commit()
             row = cur.fetchone()
@@ -388,9 +670,10 @@ def atualizar_usuario(usuario_id: int, usuario: Usuario):
 
 
 @app.delete("/api/usuarios/{usuario_id}", status_code=204)
-def deletar_usuario(usuario_id: int):
+def deletar_usuario(usuario_id: int, request: Request):
     with get_conn() as conn:
         with conn.cursor() as cur:
+            exigir_admin(exigir_usuario(request, cur))
             cur.execute("DELETE FROM usuarios WHERE id = %s RETURNING id", (usuario_id,))
             conn.commit()
             if not cur.fetchone():

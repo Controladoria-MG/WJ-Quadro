@@ -1329,3 +1329,60 @@ select {
 #filtro-usuario-bar {
   flex-shrink: 0;
 }
+/* ── Equipes ──────────────────────────────────────────────── */
+.nav-section-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.btn-nav-add {
+  background: none;
+  border: 1px solid var(--border2);
+  color: var(--muted);
+  border-radius: 4px;
+  width: 18px; height: 18px;
+  line-height: 14px;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 0;
+}
+.btn-nav-add:hover { color: var(--white); border-color: var(--muted); }
+#nav-equipes { margin-bottom: 4px; }
+#nav-equipes .nav-item span.nav-equipe-nome {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nav-equipe-count {
+  font-size: 11px;
+  color: var(--muted2);
+}
+.nav-equipe-vazio {
+  padding: 4px 18px 8px;
+  font-size: 12px;
+  color: var(--muted2);
+}
+
+.membros-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+.membro-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface2);
+  font-size: 13px;
+}
+.membro-row .membro-nome { flex: 1; min-width: 0; }
+.membro-row .membro-nome span { display: block; font-size: 11px; color: var(--muted); }
+.membro-row select { width: auto; padding: 4px 8px; font-size: 12px; }
+.membro-papel { font-size: 11px; color: var(--muted); }
+.membro-row .btn-remove-etapa { flex-shrink: 0; }

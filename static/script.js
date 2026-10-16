@@ -20,6 +20,8 @@ applyAccent(localStorage.getItem("accent") || "green");
 let state = {
   users:        [],
   tarefas:      [],
+  equipes:      [],
+  equipeAtual:  null,
   current:      null,
   filtroUsuario: null,
   filtroConcluidoUsuario:  null,
@@ -31,6 +33,10 @@ async function apiFetch(method, path, body = null) {
   const opts = { method, headers: { "Content-Type": "application/json" } };
   if (body !== null) opts.body = JSON.stringify(body);
   const res = await fetch(`${API}${path}`, opts);
+  if (res.status === 401 && state.current) {
+    logout();
+    throw new Error("Sessão expirada. Entre novamente.");
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.detail || `Erro ${res.status}`);
@@ -49,6 +55,12 @@ const api = {
   criarUsuario:    (u)        => apiFetch("POST",   "/api/usuarios", u),
   atualizarUsuario:(id, u)    => apiFetch("PUT",    `/api/usuarios/${id}`, u),
   deletarUsuario:  (id)       => apiFetch("DELETE", `/api/usuarios/${id}`),
+  getEquipes:      ()         => apiFetch("GET",    "/api/equipes"),
+  criarEquipe:     (nome)     => apiFetch("POST",   "/api/equipes", { nome }),
+  renomearEquipe:  (id, nome) => apiFetch("PUT",    `/api/equipes/${id}`, { nome }),
+  deletarEquipe:   (id)       => apiFetch("DELETE", `/api/equipes/${id}`),
+  salvarMembro:    (id, usuarioId, papel) => apiFetch("PUT", `/api/equipes/${id}/membros`, { usuarioId, papel }),
+  removerMembro:   (id, usuarioId)        => apiFetch("DELETE", `/api/equipes/${id}/membros/${usuarioId}`),
 };
 
 // ── Data helpers ──────────────────────────────────────────
@@ -60,15 +72,99 @@ function isDiariaFeitaHoje(t) {
   return t.prazo === "diaria" && t.diariaFeitaEm === todayStr();
 }
 
+// ── Equipes ───────────────────────────────────────────────
+function equipeAtual() {
+  return state.equipes.find(e => e.id === state.equipeAtual) || null;
+}
+
+function membrosDaEquipe(equipeId) {
+  const equipe = state.equipes.find(e => e.id === equipeId);
+  if (!equipe) return [];
+  const ids = new Set(equipe.membros.map(m => m.usuarioId));
+  return state.users.filter(u => ids.has(u.id));
+}
+
+function tarefasDaEquipeAtual() {
+  return state.tarefas.filter(t => t.equipeId === state.equipeAtual);
+}
+
+function souGestorDaEquipe(equipe) {
+  if (!equipe || !state.current) return false;
+  if (state.current.isAdmin) return true;
+  return equipe.membros.some(m => m.usuarioId === state.current.id && m.papel === "admin");
+}
+
+function escolherEquipe(id) {
+  state.equipeAtual    = id;
+  state.filtroUsuario  = null;
+  state.filtroConcluidoUsuario = null;
+  try { localStorage.setItem("equipeAtual", String(id)); } catch (e) {}
+  renderFiltroUsuarios();
+  renderBoard();
+  if (document.getElementById("concluded-screen").classList.contains("visible")) renderConcluded();
+}
+
+function renderNavEquipes() {
+  const nav = document.getElementById("nav-equipes");
+  nav.innerHTML = "";
+  const adminVisivel = document.getElementById("admin-screen").classList.contains("visible");
+
+  if (state.equipes.length === 0) {
+    nav.innerHTML = `<div class="nav-equipe-vazio">Você ainda não faz parte de nenhuma equipe.</div>`;
+  }
+  state.equipes.forEach(eq => {
+    const abertas = state.tarefas.filter(t => t.equipeId === eq.id && !t.concluida && t.prazo !== "diaria").length;
+    const el = document.createElement("div");
+    el.className = "nav-item" + (eq.id === state.equipeAtual && !adminVisivel ? " active" : "");
+    el.innerHTML = `
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
+        <rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
+      </svg>
+      <span class="nav-equipe-nome"></span>
+      <span class="nav-equipe-count">${abertas || ""}</span>`;
+    el.querySelector(".nav-equipe-nome").textContent = eq.nome;
+    el.title = eq.nome;
+    el.addEventListener("click", () => { showBoardView(); escolherEquipe(eq.id); });
+    nav.appendChild(el);
+  });
+
+  document.getElementById("btn-nova-equipe").classList.toggle("hidden", !state.current?.isAdmin);
+
+  const eq = equipeAtual();
+  document.getElementById("topbar-titulo").textContent = eq ? `Tarefas · ${eq.nome}` : "Tarefas";
+  document.getElementById("btn-equipe-membros").classList.toggle("hidden", !eq);
+  document.getElementById("btn-new-task").disabled = !eq;
+}
+
+async function carregarDados() {
+  showLoading(true);
+  try {
+    [state.users, state.equipes, state.tarefas] = await Promise.all([
+      api.getUsuarios(),
+      api.getEquipes(),
+      api.getTarefas(),
+    ]);
+    resetDiariasSeNecessario();
+  } catch (e) {
+    toast(e.message || "Não foi possível conectar ao servidor.", true);
+    console.error(e);
+  }
+  showLoading(false);
+  if (!state.current) return;
+
+  let salva = null;
+  try { salva = parseInt(localStorage.getItem("equipeAtual")); } catch (e) {}
+  const doUsuario = state.equipes.filter(eq => eq.membros.some(m => m.usuarioId === state.current.id));
+  const escolhida = state.equipes.find(eq => eq.id === salva) || doUsuario[0] || state.equipes[0];
+  state.equipeAtual = escolhida ? escolhida.id : null;
+}
+
 // ── Boot ──────────────────────────────────────────────────
 async function boot() {
   showLoading(true);
   try {
-    [state.users, state.tarefas] = await Promise.all([
-      api.getUsuarios(),
-      api.getTarefas(),
-    ]);
-    resetDiariasSeNecessario();
+    state.users = await api.getUsuarios();
   } catch (e) {
     toast("Não foi possível conectar ao servidor.", true);
     console.error(e);
@@ -208,8 +304,10 @@ document.getElementById("btn-create-user").addEventListener("click", async () =>
 });
 
 // ── Enter / Logout ────────────────────────────────────────
-function enterApp() {
+async function enterApp() {
   document.cookie = `currentUserId=${state.current.id};path=/;max-age=86400`;
+  await carregarDados();
+  if (!state.current) return;
   document.getElementById("login-screen").style.display = "none";
   document.getElementById("app").classList.add("visible");
   document.getElementById("sb-user-name").textContent   = state.current.nome;
@@ -258,9 +356,14 @@ function checkAvisoNovasTarefas() {
   };
 }
 
-document.getElementById("btn-logout").addEventListener("click", () => {
+document.getElementById("btn-logout").addEventListener("click", logout);
+
+function logout() {
   state.current      = null;
   state.filtroUsuario = null;
+  state.tarefas      = [];
+  state.equipes      = [];
+  state.equipeAtual  = null;
   document.cookie = "currentUserId=;path=/;max-age=0";
   document.getElementById("app").classList.remove("visible");
   document.getElementById("login-screen").style.display = "";
@@ -270,8 +373,10 @@ document.getElementById("btn-logout").addEventListener("click", () => {
   const bar = document.getElementById("filtro-usuario-bar");
   if (bar) bar.remove();
   document.getElementById("nav-admin").classList.add("hidden");
+  document.querySelectorAll(".modal-overlay:not(#loading-overlay)").forEach(o => o.classList.add("hidden"));
+  renderLoginUsers();
   showBoardView();
-});
+}
 
 // ── Foto de perfil (qualquer usuário, não só admin) ───────
 // Clicar no próprio avatar da sidebar revela o botão de trocar a foto —
@@ -371,8 +476,8 @@ function renderFiltroUsuarios() {
   };
   group.appendChild(btnTodos);
 
-  // Botão por usuário
-  state.users.forEach(u => {
+  // Botão por membro da equipe
+  membrosDaEquipe(state.equipeAtual).forEach(u => {
     const btn = document.createElement("button");
     btn.className = "filtro-btn" + (state.filtroUsuario === u.id ? " active" : "");
     btn.innerHTML = `${u.avatar} ${u.nome}`;
@@ -408,9 +513,10 @@ function renderBoard() {
   const board = document.getElementById("board");
   board.innerHTML = "";
 
+  const daEquipe = tarefasDaEquipeAtual();
   const tarefasFiltradas = state.filtroUsuario !== null
-    ? state.tarefas.filter(t => t.responsavel === state.filtroUsuario)
-    : state.tarefas;
+    ? daEquipe.filter(t => t.responsavel === state.filtroUsuario)
+    : daEquipe;
 
   COLUMNS.forEach(col => {
     const tasks = col.key === "diaria"
@@ -478,6 +584,7 @@ function renderBoard() {
       ));
     }
   });
+  renderNavEquipes();
 }
 
 // ── Cards ─────────────────────────────────────────────────
@@ -648,7 +755,7 @@ function renderConcluded() {
   const list = document.getElementById("concluded-list");
   list.innerHTML = "";
 
-  let done = state.tarefas.filter(t => t.concluida);
+  let done = tarefasDaEquipeAtual().filter(t => t.concluida);
   const temFiltro = state.filtroConcluidoUsuario !== null || state.filtroConcluidoPeriodo !== "todos";
 
   if (state.filtroConcluidoUsuario !== null) {
@@ -709,7 +816,7 @@ function renderFiltrosConcluidas() {
     state.filtroConcluidoUsuario = null;
     renderConcluded();
   });
-  state.users.forEach(u => {
+  membrosDaEquipe(state.equipeAtual).forEach(u => {
     addBtn(groupUser, `${u.avatar} ${u.nome}`, state.filtroConcluidoUsuario === u.id, () => {
       state.filtroConcluidoUsuario = u.id;
       renderConcluded();
@@ -739,11 +846,9 @@ function showBoardView() {
   document.getElementById("concluded-screen").classList.remove("visible");
   document.getElementById("board").classList.remove("hidden");
   document.getElementById("filtro-usuario-bar")?.classList.remove("hidden");
-  document.getElementById("nav-board").classList.add("active");
   document.getElementById("nav-admin").classList.remove("active");
+  if (state.current) renderNavEquipes();
 }
-
-document.getElementById("nav-board").addEventListener("click", showBoardView);
 
 document.getElementById("nav-admin").addEventListener("click", () => {
   document.getElementById("board").classList.add("hidden");
@@ -751,7 +856,7 @@ document.getElementById("nav-admin").addEventListener("click", () => {
   document.getElementById("concluded-screen").classList.remove("visible");
   document.getElementById("admin-screen").classList.add("visible");
   document.getElementById("nav-admin").classList.add("active");
-  document.getElementById("nav-board").classList.remove("active");
+  renderNavEquipes();
   renderAdminTarefas();
   renderAdminUsuarios();
 });
@@ -774,9 +879,11 @@ function renderAdminTarefas() {
   tbody.innerHTML = "";
   state.tarefas.forEach(t => {
     const resp = t.responsavel ? state.users.find(u => u.id === t.responsavel) : null;
+    const eq = state.equipes.find(e => e.id === t.equipeId);
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${t.id}</td>
+      <td>${eq ? eq.nome : "—"}</td>
       <td class="admin-nome-cell">${t.nome}</td>
       <td>${t.prazo}</td>
       <td>${labelStatus(t.status)}</td>
@@ -869,15 +976,32 @@ function openAdminTarefaModal(id) {
   document.getElementById("admin-t-retorno").value      = t.retorno || "";
   document.getElementById("admin-t-etapas").value       = JSON.stringify(t.etapas || [], null, 2);
 
-  const sel = document.getElementById("admin-t-responsavel");
-  sel.innerHTML = '<option value="">Sem responsável</option>';
-  state.users.forEach(u => {
+  const selEquipe = document.getElementById("admin-t-equipe");
+  selEquipe.innerHTML = "";
+  state.equipes.forEach(eq => {
     const opt = document.createElement("option");
-    opt.value = u.id;
-    opt.textContent = u.nome;
-    if (t.responsavel === u.id) opt.selected = true;
-    sel.appendChild(opt);
+    opt.value = eq.id;
+    opt.textContent = eq.nome;
+    selEquipe.appendChild(opt);
   });
+  selEquipe.value = t.equipeId ?? "";
+
+  const preencherResponsaveis = (responsavelAtual) => {
+    const sel = document.getElementById("admin-t-responsavel");
+    sel.innerHTML = '<option value="">Sem responsável</option>';
+    membrosDaEquipe(parseInt(selEquipe.value)).forEach(u => {
+      const opt = document.createElement("option");
+      opt.value = u.id;
+      opt.textContent = u.nome;
+      if (responsavelAtual === u.id) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  };
+  preencherResponsaveis(t.responsavel);
+  selEquipe.onchange = () => {
+    const atual = parseInt(document.getElementById("admin-t-responsavel").value) || null;
+    preencherResponsaveis(atual);
+  };
 
   document.getElementById("modal-admin-tarefa-overlay").classList.remove("hidden");
 }
@@ -907,6 +1031,7 @@ document.getElementById("btn-save-admin-tarefa").addEventListener("click", async
 
   const respVal = document.getElementById("admin-t-responsavel").value;
   const payload = {
+    equipeId:    parseInt(document.getElementById("admin-t-equipe").value) || t.equipeId,
     nome:        document.getElementById("admin-t-nome").value.trim(),
     descricao:   document.getElementById("admin-t-descricao").value,
     etapas,
@@ -1042,13 +1167,16 @@ document.getElementById("modal-create-overlay").addEventListener("click", e => {
 });
 
 function openCreateModal() {
+  const eq = equipeAtual();
+  if (!eq) { toast("Escolha uma equipe antes de criar a tarefa.", true); return; }
   // Mantém o que já foi digitado de uma tentativa anterior (não reseta o
   // form nem etapasTemp aqui) — só é limpo depois de criar com sucesso.
   renderEtapasTemp();
+  document.querySelector("#modal-create .modal-header-info p").textContent = `Equipe ${eq.nome}`;
   const sel = document.getElementById("input-responsavel");
   const prevResponsavel = sel.value;
   sel.innerHTML = '<option value="">Sem responsável</option>';
-  state.users.forEach(u => {
+  membrosDaEquipe(eq.id).forEach(u => {
     const opt = document.createElement("option");
     opt.value = u.id;
     opt.textContent = u.nome;
@@ -1110,6 +1238,7 @@ document.getElementById("btn-save-create").addEventListener("click", async () =>
   if (!prazo) { toast("Selecione o tipo de prazo.", true); return; }
 
   const payload = {
+    equipeId: state.equipeAtual,
     nome, descricao: desc,
     etapas: etapasTemp.map(e => ({ ...e })),
     prazo, dataPrazo, urgencia,
@@ -1291,7 +1420,7 @@ function openDetail(id) {
 
   const sel = document.getElementById("detail-responsavel");
   sel.innerHTML = '<option value="">Sem responsável</option>';
-  state.users.forEach(u => {
+  membrosDaEquipe(t.equipeId).forEach(u => {
     const opt = document.createElement("option");
     opt.value = u.id;
     opt.textContent = u.nome;
@@ -1299,9 +1428,14 @@ function openDetail(id) {
     sel.appendChild(opt);
   });
   sel.onchange = async () => {
+    const responsavelAnterior = t.responsavel;
     t.responsavel = sel.value ? parseInt(sel.value) : null;
     try { await api.atualizarTarefa(t.id, t); renderBoard(); }
-    catch (err) { toast(err.message, true); }
+    catch (err) {
+      t.responsavel = responsavelAnterior;
+      sel.value = responsavelAnterior ?? "";
+      toast(err.message, true);
+    }
   };
 
   const selStatus = document.getElementById("detail-status-sel");
@@ -1458,6 +1592,176 @@ function closeDetail() {
   modalDetail.classList.add("hidden");
 }
 
+// ── Modal: Equipe (membros) ───────────────────────────────
+function substituirEquipe(atualizada) {
+  const idx = state.equipes.findIndex(e => e.id === atualizada.id);
+  if (idx === -1) state.equipes.push(atualizada);
+  else state.equipes[idx] = atualizada;
+  state.equipes.sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+}
+
+function openEquipeModal() {
+  if (!equipeAtual()) return;
+  renderEquipeModal();
+  document.getElementById("modal-equipe-overlay").classList.remove("hidden");
+}
+
+function closeEquipeModal() {
+  document.getElementById("modal-equipe-overlay").classList.add("hidden");
+}
+
+function renderEquipeModal() {
+  const eq = equipeAtual();
+  if (!eq) { closeEquipeModal(); return; }
+  const gestor = souGestorDaEquipe(eq);
+
+  document.getElementById("equipe-modal-titulo").textContent = eq.nome;
+  document.getElementById("equipe-modal-sub").textContent =
+    `${eq.membros.length} ${eq.membros.length === 1 ? "membro" : "membros"}`;
+  document.querySelectorAll("#modal-equipe .equipe-gestao").forEach(el => el.classList.toggle("hidden", !gestor));
+  document.getElementById("btn-equipe-excluir").classList.toggle("hidden", !state.current.isAdmin);
+  document.getElementById("equipe-nome-input").value = eq.nome;
+
+  const list = document.getElementById("equipe-membros-list");
+  list.innerHTML = "";
+  const papelDe = new Map(eq.membros.map(m => [m.usuarioId, m.papel]));
+  membrosDaEquipe(eq.id).forEach(u => {
+    const papel = papelDe.get(u.id);
+    const row = document.createElement("div");
+    row.className = "membro-row";
+    row.innerHTML = `
+      ${avatarHTML(u, "sm")}
+      <div class="membro-nome"><strong></strong><span></span></div>
+      ${gestor ? `
+        <select class="membro-papel-sel">
+          <option value="membro">Membro</option>
+          <option value="admin">Admin da equipe</option>
+        </select>
+        <button class="btn-remove-etapa" title="Remover da equipe">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>`
+      : `<span class="membro-papel">${papel === "admin" ? "Admin da equipe" : "Membro"}</span>`}`;
+    row.querySelector(".membro-nome strong").textContent = u.nome;
+    row.querySelector(".membro-nome span").textContent = u.cargo || "";
+
+    if (gestor) {
+      const selPapel = row.querySelector(".membro-papel-sel");
+      selPapel.value = papel;
+      selPapel.onchange = async () => {
+        try {
+          substituirEquipe(await api.salvarMembro(eq.id, u.id, selPapel.value));
+          renderEquipeModal();
+        } catch (err) {
+          selPapel.value = papel;
+          toast(err.message, true);
+        }
+      };
+      row.querySelector(".btn-remove-etapa").onclick = async () => {
+        const ok = await showConfirm(
+          `Remover ${u.nome} da equipe ${eq.nome}? As tarefas dessa pessoa nesta equipe ficarão sem responsável.`,
+          { title: "Remover membro", confirmLabel: "Remover" }
+        );
+        if (!ok) return;
+        try {
+          substituirEquipe(await api.removerMembro(eq.id, u.id));
+          state.tarefas.forEach(t => {
+            if (t.equipeId === eq.id && t.responsavel === u.id) t.responsavel = null;
+          });
+          if (u.id === state.current.id && !state.current.isAdmin) {
+            // Saiu da própria equipe: deixa de ver o quadro dela.
+            state.equipes = state.equipes.filter(e => e.id !== eq.id);
+            state.tarefas = state.tarefas.filter(t => t.equipeId !== eq.id);
+            closeEquipeModal();
+            escolherEquipe(state.equipes[0]?.id ?? null);
+            return;
+          }
+          renderEquipeModal();
+          renderFiltroUsuarios();
+          renderBoard();
+        } catch (err) {
+          toast(err.message, true);
+        }
+      };
+    }
+    list.appendChild(row);
+  });
+
+  const selAdd = document.getElementById("equipe-add-usuario");
+  selAdd.innerHTML = '<option value="">Selecione uma pessoa...</option>';
+  state.users.filter(u => !papelDe.has(u.id)).forEach(u => {
+    const opt = document.createElement("option");
+    opt.value = u.id;
+    opt.textContent = u.nome;
+    selAdd.appendChild(opt);
+  });
+}
+
+document.getElementById("btn-equipe-membros").addEventListener("click", openEquipeModal);
+document.getElementById("btn-close-equipe").addEventListener("click", closeEquipeModal);
+document.getElementById("btn-equipe-fechar").addEventListener("click", closeEquipeModal);
+document.getElementById("modal-equipe-overlay").addEventListener("click", e => {
+  if (e.target === document.getElementById("modal-equipe-overlay")) closeEquipeModal();
+});
+
+document.getElementById("btn-equipe-add-membro").addEventListener("click", async () => {
+  const eq = equipeAtual();
+  const usuarioId = parseInt(document.getElementById("equipe-add-usuario").value);
+  if (!eq || !usuarioId) return;
+  try {
+    substituirEquipe(await api.salvarMembro(eq.id, usuarioId, "membro"));
+    renderEquipeModal();
+    renderFiltroUsuarios();
+  } catch (err) {
+    toast(err.message, true);
+  }
+});
+
+document.getElementById("btn-equipe-renomear").addEventListener("click", async () => {
+  const eq = equipeAtual();
+  const nome = document.getElementById("equipe-nome-input").value.trim();
+  if (!eq || !nome || nome === eq.nome) return;
+  try {
+    substituirEquipe(await api.renomearEquipe(eq.id, nome));
+    renderEquipeModal();
+    renderNavEquipes();
+    toast("Equipe renomeada.");
+  } catch (err) {
+    toast(err.message, true);
+  }
+});
+
+document.getElementById("btn-equipe-excluir").addEventListener("click", async () => {
+  const eq = equipeAtual();
+  if (!eq) return;
+  const ok = await showConfirm(`Excluir a equipe ${eq.nome}? Só é possível excluir equipes sem tarefas.`);
+  if (!ok) return;
+  try {
+    await api.deletarEquipe(eq.id);
+    state.equipes = state.equipes.filter(e => e.id !== eq.id);
+    closeEquipeModal();
+    escolherEquipe(state.equipes[0]?.id ?? null);
+    toast("Equipe excluída.");
+  } catch (err) {
+    toast(err.message, true);
+  }
+});
+
+document.getElementById("btn-nova-equipe").addEventListener("click", async () => {
+  const nome = (prompt("Nome da nova equipe:") || "").trim();
+  if (!nome) return;
+  try {
+    let nova = await api.criarEquipe(nome);
+    // Quem cria entra como admin da equipe, para já poder adicionar as pessoas.
+    nova = await api.salvarMembro(nova.id, state.current.id, "admin");
+    substituirEquipe(nova);
+    showBoardView();
+    escolherEquipe(nova.id);
+    openEquipeModal();
+  } catch (err) {
+    toast(err.message, true);
+  }
+});
+
 // ── Helpers ───────────────────────────────────────────────
 function formatDate(str) {
   if (!str) return "";
@@ -1507,6 +1811,8 @@ document.addEventListener("keydown", e => {
     closeAdminTarefaModal();
   } else if (!document.getElementById("modal-admin-usuario-overlay").classList.contains("hidden")) {
     closeAdminUsuarioModal();
+  } else if (!document.getElementById("modal-equipe-overlay").classList.contains("hidden")) {
+    closeEquipeModal();
   }
 });
 
