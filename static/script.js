@@ -67,6 +67,8 @@ const api = {
   getAtividade:    (id)       => apiFetch("GET",    `/api/tarefas/${id}/atividade`),
   comentar:        (id, texto) => apiFetch("POST",  `/api/tarefas/${id}/comentarios`, { texto }),
   apagarComentario:(id)       => apiFetch("DELETE", `/api/comentarios/${id}`),
+  getNotificacoes: ()         => apiFetch("GET",    "/api/notificacoes"),
+  marcarNotificacoesLidas: (ids) => apiFetch("POST", "/api/notificacoes/lidas", { ids }),
   deletarTarefa:   (id)       => apiFetch("DELETE", `/api/tarefas/${id}`),
   getUsuarios:     ()         => apiFetch("GET",    "/api/usuarios"),
   criarUsuario:    (u)        => apiFetch("POST",   "/api/usuarios", u),
@@ -387,6 +389,7 @@ async function enterApp() {
   renderFiltroUsuarios();
   renderBoard();
   checkAvisoNovasTarefas();
+  carregarNotificacoes();
 }
 
 // ── Aviso de novas tarefas atribuídas ──────────────────────
@@ -434,6 +437,9 @@ function logout() {
   state.tarefas      = [];
   state.equipes      = [];
   state.equipeAtual  = null;
+  notificacoes = { naoLidas: 0, itens: [] };
+  renderNotificacoes();
+  fecharPainelNotificacoes();
   document.cookie = "currentUserId=;path=/;max-age=0";
   document.getElementById("app").classList.remove("visible");
   document.getElementById("login-screen").style.display = "";
@@ -2481,6 +2487,113 @@ document.getElementById("btn-comentar").addEventListener("click", enviarComentar
 document.getElementById("detail-comentario").addEventListener("keydown", e => {
   if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); enviarComentario(); }
 });
+
+// ── Notificações (sino no topo) ───────────────────────────
+// Buscadas a cada 20s, independente do resto da tela: atualizar o número
+// do sino não atrapalha quem está digitando ou com uma janela aberta.
+let notificacoes = { naoLidas: 0, itens: [] };
+
+async function carregarNotificacoes() {
+  if (!state.current) return;
+  try {
+    notificacoes = await api.getNotificacoes();
+  } catch (e) {
+    return;
+  }
+  renderNotificacoes();
+}
+
+function renderNotificacoes() {
+  const n = notificacoes.naoLidas;
+  const badge = document.getElementById("notif-badge");
+  badge.textContent = n > 99 ? "99+" : String(n);
+  badge.classList.toggle("hidden", n === 0);
+  document.title = n > 0 ? `(${n}) Portal de Tarefas` : "Portal de Tarefas";
+  document.getElementById("btn-notif-todas").disabled = n === 0;
+
+  const lista = document.getElementById("notif-lista");
+  lista.innerHTML = "";
+  if (notificacoes.itens.length === 0) {
+    lista.innerHTML = `<div class="notif-vazia">Nenhuma notificação por enquanto.</div>`;
+    return;
+  }
+  notificacoes.itens.forEach(item => {
+    const autor = state.users.find(u => u.id === item.autorId);
+    const el = document.createElement("div");
+    el.className = "notif-item" + (item.lida ? "" : " nao-lida");
+    el.innerHTML = `
+      ${avatarHTML(autor, "sm")}
+      <div class="notif-texto"><span></span><span class="notif-quando"></span></div>
+      ${item.lida ? "" : `<div class="notif-ponto"></div>`}`;
+    el.querySelector(".notif-texto span").textContent = item.texto;
+    el.querySelector(".notif-quando").textContent = tempoRelativo(item.criadoEm);
+    el.addEventListener("click", () => abrirNotificacao(item));
+    lista.appendChild(el);
+  });
+}
+
+async function marcarNotificacoesLidas(ids = null) {
+  const alvo = ids ? notificacoes.itens.filter(i => ids.includes(i.id)) : notificacoes.itens;
+  const novas = alvo.filter(i => !i.lida).length;
+  alvo.forEach(i => { i.lida = true; });
+  notificacoes.naoLidas = ids ? Math.max(0, notificacoes.naoLidas - novas) : 0;
+  renderNotificacoes();
+  try {
+    await api.marcarNotificacoesLidas(ids);
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
+function fecharPainelNotificacoes() {
+  document.getElementById("notif-painel").classList.add("hidden");
+}
+
+// Vai para a equipe/tarefa da notificação. Se a pessoa acabou de entrar
+// num grupo, a equipe ainda não está carregada: busca de novo antes.
+async function abrirNotificacao(item) {
+  fecharPainelNotificacoes();
+  if (!item.lida) marcarNotificacoesLidas([item.id]);
+  if (!item.equipeId) return;
+
+  if (!state.equipes.some(e => e.id === item.equipeId) ||
+      (item.tarefaId && !state.tarefas.some(t => t.id === item.tarefaId))) {
+    try {
+      [state.equipes, state.tarefas] = await Promise.all([api.getEquipes(), api.getTarefas()]);
+    } catch (err) {
+      toast(err.message, true);
+      return;
+    }
+  }
+  if (!state.equipes.some(e => e.id === item.equipeId)) {
+    toast("Você não tem mais acesso a esta equipe.", true);
+    return;
+  }
+  showBoardView();
+  escolherEquipe(item.equipeId);
+  if (item.tarefaId) {
+    if (state.tarefas.some(t => t.id === item.tarefaId)) openDetail(item.tarefaId);
+    else toast("Essa tarefa foi excluída.", true);
+  }
+}
+
+document.getElementById("btn-notif").addEventListener("click", e => {
+  e.stopPropagation();
+  const painel = document.getElementById("notif-painel");
+  painel.classList.toggle("hidden");
+  if (painel.classList.contains("hidden")) return;
+  const r = document.getElementById("btn-notif").getBoundingClientRect();
+  painel.style.top   = `${r.bottom + 8}px`;
+  painel.style.right = `${Math.max(16, window.innerWidth - r.right)}px`;
+  carregarNotificacoes();
+});
+document.getElementById("notif-painel").addEventListener("click", e => e.stopPropagation());
+document.getElementById("btn-notif-todas").addEventListener("click", () => marcarNotificacoesLidas());
+document.addEventListener("click", fecharPainelNotificacoes);
+document.addEventListener("keydown", e => { if (e.key === "Escape") fecharPainelNotificacoes(); });
+
+setInterval(() => { if (!document.hidden) carregarNotificacoes(); }, INTERVALO_ATUALIZACAO);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) carregarNotificacoes(); });
 
 // ── Helpers ───────────────────────────────────────────────
 function formatDate(str) {

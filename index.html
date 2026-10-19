@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Portal de Tarefas</title>
-  <link rel="stylesheet" href="static/style.css?v=2026-10-19" />
+  <link rel="stylesheet" href="static/style.css?v=2026-10-19c" />
 </head>
 <body>
 
@@ -144,6 +144,21 @@
         <p>Crie e acompanhe tarefas internas da equipe</p>
       </div>
       <div class="topbar-actions">
+        <div class="notif-wrap" id="notif-wrap">
+          <button class="btn btn-ghost btn-notif" id="btn-notif" title="Notificações">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+            </svg>
+            <span class="notif-badge hidden" id="notif-badge"></span>
+          </button>
+          <div class="notif-painel hidden" id="notif-painel">
+            <div class="notif-cabecalho">
+              <strong>Notificações</strong>
+              <button type="button" id="btn-notif-todas">Marcar todas como lidas</button>
+            </div>
+            <div class="notif-lista" id="notif-lista"></div>
+          </div>
+        </div>
         <button class="btn btn-ghost hidden" id="btn-colunas">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <rect x="3" y="3" width="5" height="18" rx="1"/><rect x="10" y="3" width="5" height="12" rx="1"/><rect x="17" y="3" width="4" height="15" rx="1"/>
@@ -776,6 +791,6 @@
   <span style="color:var(--muted);font-size:13px;">Conectando ao servidor...</span>
 </div>
 
-<script src="static/script.js?v=2026-10-19"></script>
+<script src="static/script.js?v=2026-10-19c"></script>
 </body>
 </html>

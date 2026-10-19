@@ -268,6 +268,22 @@ def init_db():
             cur.execute("CREATE INDEX IF NOT EXISTS historico_tarefa_idx ON historico (tarefa_id)")
             conn.commit()
 
+            # Notificações (sino no topo)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS notificacoes (
+                    id          SERIAL PRIMARY KEY,
+                    usuario_id  INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+                    autor_id    INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
+                    texto       TEXT NOT NULL,
+                    tarefa_id   INTEGER REFERENCES tarefas(id) ON DELETE CASCADE,
+                    equipe_id   INTEGER REFERENCES equipes(id) ON DELETE CASCADE,
+                    lida        BOOLEAN NOT NULL DEFAULT FALSE,
+                    criado_em   TEXT NOT NULL
+                )
+            """)
+            cur.execute("CREATE INDEX IF NOT EXISTS notificacoes_usuario_idx ON notificacoes (usuario_id, lida)")
+            conn.commit()
+
 def criar_colunas_padrao(cur, equipe_id: int):
     for ordem, (nome, cor, finaliza) in enumerate(COLUNAS_PADRAO):
         cur.execute(
@@ -393,6 +409,52 @@ def registrar(cur, tarefa_id: int, usuario_id: int, acao: str, agrupar: bool = F
         "INSERT INTO historico (tarefa_id, usuario_id, acao, criado_em) VALUES (%s,%s,%s,%s)",
         (tarefa_id, usuario_id, acao, agora_iso())
     )
+
+def notificar(cur, destinos, autor: dict, texto: str, tarefa_id: Optional[int] = None,
+              equipe_id: Optional[int] = None, agrupar: bool = False):
+    """Cria uma notificação para cada destino (nunca para quem fez a ação).
+    Com agrupar=True, não repete o mesmo aviso ainda não lido dos últimos 10 min."""
+    for destino in {d for d in destinos if d and d != autor["id"]}:
+        if agrupar:
+            cur.execute("""
+                SELECT criado_em FROM notificacoes
+                WHERE usuario_id = %s AND autor_id = %s AND texto = %s AND NOT lida
+                ORDER BY id DESC LIMIT 1
+            """, (destino, autor["id"], texto))
+            ultima = cur.fetchone()
+            if ultima and (datetime.now(timezone.utc) - datetime.fromisoformat(ultima["criado_em"])).total_seconds() < 600:
+                continue
+        cur.execute("""
+            INSERT INTO notificacoes (usuario_id, autor_id, texto, tarefa_id, equipe_id, criado_em)
+            VALUES (%s,%s,%s,%s,%s,%s)
+        """, (destino, autor["id"], texto, tarefa_id, equipe_id, agora_iso()))
+
+def nome_equipe(cur, equipe_id: int) -> str:
+    cur.execute("SELECT nome FROM equipes WHERE id = %s", (equipe_id,))
+    r = cur.fetchone()
+    return r["nome"] if r else ""
+
+def registrar_e_notificar(cur, autor: dict, atual: dict, nova: dict, acoes: List[tuple]):
+    """Grava o histórico das mudanças e avisa o responsável e quem criou a tarefa."""
+    for acao, agrupar in acoes:
+        registrar(cur, nova["id"], autor["id"], acao, agrupar)
+
+    titulo = f'“{nova["nome"]}”'
+    interessados = {nova["responsavel"], nova["criado_por"]}
+
+    # Quem acabou de receber a tarefa ganha um aviso próprio.
+    if nova["responsavel"] and nova["responsavel"] != atual["responsavel"]:
+        notificar(cur, [nova["responsavel"]], autor,
+                  f'{autor["nome"]} te enviou a tarefa {titulo}', nova["id"], nova["equipe_id"])
+        interessados.discard(nova["responsavel"])
+
+    resto = [a for a, _ in acoes
+             if not a.startswith("atribuiu a ") and a != "marcou como feita hoje"]
+    if resto:
+        agrupar = all(ag for a, ag in acoes if a in resto)
+        notificar(cur, interessados, autor,
+                  f'{autor["nome"]} atualizou {titulo}: {"; ".join(resto)}',
+                  nova["id"], nova["equipe_id"], agrupar)
 
 ROTULO_STATUS   = {"pendente": "Pendente", "em andamento": "Em andamento", "concluida": "Concluída"}
 ROTULO_URGENCIA = {"alta": "Alta", "media": "Média", "baixa": "Baixa"}
@@ -577,6 +639,8 @@ def criar_tarefa(tarefa: Tarefa, request: Request):
             ))
             nova = cur.fetchone()
             registrar(cur, nova["id"], usuario["id"], "criou a tarefa")
+            notificar(cur, [nova["responsavel"]], usuario,
+                      f'{usuario["nome"]} te enviou a tarefa “{nova["nome"]}”', nova["id"], nova["equipe_id"])
             conn.commit()
             return row_to_tarefa(nova)
 
@@ -628,8 +692,7 @@ def atualizar_tarefa(tarefa_id: int, tarefa: Tarefa, request: Request):
                 "concluido_em": tarefa.concluidoEm, "concluido_por": tarefa.concluidoPor,
             })
             nova = cur.fetchone()
-            for acao, agrupar in descrever_mudancas(cur, atual, dict(nova)):
-                registrar(cur, tarefa_id, usuario["id"], acao, agrupar)
+            registrar_e_notificar(cur, usuario, atual, nova, descrever_mudancas(cur, atual, dict(nova)))
             conn.commit()
             return row_to_tarefa(nova)
 
@@ -675,8 +738,7 @@ def patch_tarefa(tarefa_id: int, campos: dict, request: Request):
                 values
             )
             nova = cur.fetchone()
-            for acao, agrupar in descrever_mudancas(cur, atual, novos):
-                registrar(cur, tarefa_id, usuario["id"], acao, agrupar)
+            registrar_e_notificar(cur, usuario, atual, nova, descrever_mudancas(cur, atual, novos))
             conn.commit()
             return row_to_tarefa(nova)
 
@@ -730,13 +792,19 @@ def comentar(tarefa_id: int, comentario: Comentario, request: Request):
     with get_conn() as conn:
         with conn.cursor() as cur:
             usuario = exigir_usuario(request, cur)
-            exigir_membro(cur, usuario, carregar_tarefa(cur, tarefa_id)["equipe_id"])
+            tarefa = carregar_tarefa(cur, tarefa_id)
+            exigir_membro(cur, usuario, tarefa["equipe_id"])
             cur.execute(
                 "INSERT INTO comentarios (tarefa_id, usuario_id, texto, criado_em) VALUES (%s,%s,%s,%s) RETURNING id",
                 (tarefa_id, usuario["id"], texto, agora_iso())
             )
+            novo_id = cur.fetchone()["id"]
+            trecho = texto if len(texto) <= 80 else texto[:77].rstrip() + "..."
+            notificar(cur, [tarefa["responsavel"], tarefa["criado_por"]], usuario,
+                      f'{usuario["nome"]} comentou em “{tarefa["nome"]}”: {trecho}',
+                      tarefa_id, tarefa["equipe_id"])
             conn.commit()
-            return {"id": cur.fetchone()["id"]}
+            return {"id": novo_id}
 
 
 @app.delete("/api/comentarios/{comentario_id}", status_code=204)
@@ -754,6 +822,51 @@ def apagar_comentario(comentario_id: int, request: Request):
             cur.execute("DELETE FROM comentarios WHERE id = %s", (comentario_id,))
             conn.commit()
     return None
+
+# ══════════════════════════════════════════════════════════
+# ROTAS — NOTIFICAÇÕES
+# ══════════════════════════════════════════════════════════
+
+class IdsNotificacoes(BaseModel):
+    ids: Optional[List[int]] = None   # vazio = todas
+
+
+@app.get("/api/notificacoes")
+def listar_notificacoes(request: Request):
+    """As 50 notificações mais recentes do usuário logado e o total não lido."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            usuario = exigir_usuario(request, cur)
+            cur.execute("SELECT COUNT(*) AS c FROM notificacoes WHERE usuario_id = %s AND NOT lida", (usuario["id"],))
+            nao_lidas = cur.fetchone()["c"]
+            cur.execute("""
+                SELECT * FROM notificacoes WHERE usuario_id = %s
+                ORDER BY id DESC LIMIT 50
+            """, (usuario["id"],))
+            return {
+                "naoLidas": nao_lidas,
+                "itens": [{
+                    "id": n["id"], "autorId": n["autor_id"], "texto": n["texto"],
+                    "tarefaId": n["tarefa_id"], "equipeId": n["equipe_id"],
+                    "lida": n["lida"], "criadoEm": n["criado_em"],
+                } for n in cur.fetchall()],
+            }
+
+
+@app.post("/api/notificacoes/lidas")
+def marcar_lidas(corpo: IdsNotificacoes, request: Request):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            usuario = exigir_usuario(request, cur)
+            if corpo.ids:
+                cur.execute(
+                    "UPDATE notificacoes SET lida = TRUE WHERE usuario_id = %s AND id = ANY(%s)",
+                    (usuario["id"], corpo.ids)
+                )
+            else:
+                cur.execute("UPDATE notificacoes SET lida = TRUE WHERE usuario_id = %s", (usuario["id"],))
+            conn.commit()
+    return {"ok": True}
 
 # ══════════════════════════════════════════════════════════
 # ROTAS — EQUIPES
@@ -825,12 +938,16 @@ def criar_equipe(equipe: Equipe, request: Request):
                 "INSERT INTO equipe_membros (equipe_id, usuario_id, papel) VALUES (%s, %s, 'admin')",
                 (equipe_id, usuario["id"])
             )
+            adicionados = []
             for uid in set(equipe.membros or []) - {usuario["id"]}:
                 cur.execute(
                     """INSERT INTO equipe_membros (equipe_id, usuario_id, papel)
-                       SELECT %s, id, 'membro' FROM usuarios WHERE id = %s""",
+                       SELECT %s, id, 'membro' FROM usuarios WHERE id = %s RETURNING usuario_id""",
                     (equipe_id, uid)
                 )
+                if cur.fetchone():
+                    adicionados.append(uid)
+            notificar(cur, adicionados, usuario, f'{usuario["nome"]} te adicionou a {nome}', equipe_id=equipe_id)
             criar_colunas_padrao(cur, equipe_id)
             conn.commit()
             return equipes_com_membros(cur, [equipe_id])[0]
@@ -889,10 +1006,18 @@ def salvar_membro(equipe_id: int, membro: Membro, request: Request):
             cur.execute("SELECT 1 FROM usuarios WHERE id = %s", (membro.usuarioId,))
             if not cur.fetchone():
                 raise HTTPException(status_code=404, detail="Usuário não encontrado")
+            papel_antes = papel_na_equipe(cur, membro.usuarioId, equipe_id)
             cur.execute("""
                 INSERT INTO equipe_membros (equipe_id, usuario_id, papel) VALUES (%s, %s, %s)
                 ON CONFLICT (equipe_id, usuario_id) DO UPDATE SET papel = EXCLUDED.papel
             """, (equipe_id, membro.usuarioId, membro.papel))
+            equipe_nome = nome_equipe(cur, equipe_id)
+            if papel_antes is None:
+                notificar(cur, [membro.usuarioId], usuario,
+                          f'{usuario["nome"]} te adicionou a {equipe_nome}', equipe_id=equipe_id)
+            elif papel_antes != membro.papel and membro.papel == "admin":
+                notificar(cur, [membro.usuarioId], usuario,
+                          f'{usuario["nome"]} te tornou admin de {equipe_nome}', equipe_id=equipe_id)
             conn.commit()
             return equipes_com_membros(cur, [equipe_id])[0]
 
@@ -905,9 +1030,12 @@ def remover_membro(equipe_id: int, usuario_id: int, request: Request):
             usuario = exigir_usuario(request, cur)
             exigir_gestor_equipe(cur, usuario, equipe_id)
             cur.execute(
-                "DELETE FROM equipe_membros WHERE equipe_id = %s AND usuario_id = %s",
+                "DELETE FROM equipe_membros WHERE equipe_id = %s AND usuario_id = %s RETURNING usuario_id",
                 (equipe_id, usuario_id)
             )
+            if cur.fetchone():
+                notificar(cur, [usuario_id], usuario,
+                          f'{usuario["nome"]} te removeu de {nome_equipe(cur, equipe_id)}')
             cur.execute(
                 "UPDATE tarefas SET responsavel = NULL WHERE equipe_id = %s AND responsavel = %s",
                 (equipe_id, usuario_id)

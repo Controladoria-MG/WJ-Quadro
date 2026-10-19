@@ -1552,3 +1552,43 @@ select {
 }
 .atividade-apagar:hover { color: var(--red); }
 .atividade-vazia { color: var(--muted2); font-size: 12px; }
+
+/* ── Notificações ─────────────────────────────────────────── */
+.notif-wrap { position: relative; }
+.btn-notif { position: relative; padding-left: 10px; padding-right: 10px; }
+.notif-badge {
+  position: absolute; top: -5px; right: -5px;
+  min-width: 17px; height: 17px; padding: 0 4px;
+  border-radius: 99px; background: var(--red); color: #fff;
+  font-size: 10px; font-weight: 700; line-height: 17px; text-align: center;
+}
+/* Posição calculada no JS a partir do sino (fixed: não é cortado pela barra lateral) */
+.notif-painel {
+  position: fixed; z-index: 150;
+  width: 360px; max-width: calc(100vw - 32px);
+  background: var(--surface); border: 1px solid var(--border2);
+  border-radius: var(--radius); box-shadow: 0 12px 32px rgba(0,0,0,.45);
+  overflow: hidden;
+}
+.notif-cabecalho {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 14px; border-bottom: 1px solid var(--border); font-size: 13px;
+}
+.notif-cabecalho button {
+  background: none; border: none; color: var(--green); font-size: 12px; cursor: pointer; padding: 0;
+}
+.notif-cabecalho button:disabled { color: var(--muted2); cursor: default; }
+.notif-lista { max-height: 420px; overflow-y: auto; }
+.notif-item {
+  display: flex; gap: 10px; padding: 10px 14px; cursor: pointer;
+  border-bottom: 1px solid var(--border); font-size: 12px; line-height: 1.45;
+}
+.notif-item:last-child { border-bottom: none; }
+.notif-item:hover { background: var(--surface2); }
+.notif-item.nao-lida { background: var(--green-subtle); }
+.notif-item.nao-lida:hover { background: var(--surface2); }
+.notif-item .avatar { flex-shrink: 0; }
+.notif-texto { flex: 1; min-width: 0; word-break: break-word; }
+.notif-quando { display: block; color: var(--muted2); font-size: 11px; margin-top: 2px; }
+.notif-ponto { width: 7px; height: 7px; border-radius: 50%; background: var(--green); flex-shrink: 0; margin-top: 6px; }
+.notif-vazia { padding: 24px 14px; text-align: center; color: var(--muted2); font-size: 12px; }
