@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Portal de Tarefas</title>
-  <link rel="stylesheet" href="static/style.css?v=2026-10-19g" />
+  <link rel="stylesheet" href="static/style.css?v=2026-10-19h" />
 </head>
 <body>
 
@@ -359,14 +359,15 @@
     <!-- Cabeçalho: caminho, título e autoria -->
     <div class="modal-header detail-header">
       <div class="modal-header-info">
-        <div class="detail-breadcrumb" id="detail-breadcrumb">—</div>
         <div class="detail-title-row">
           <h2 id="detail-title" title="Clique para editar">—</h2>
           <button class="btn-edit-title" id="btn-edit-title" title="Editar título">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
           </button>
         </div>
-        <p id="detail-subtitle">—</p>
+        <p class="detail-meta">
+          <span id="detail-breadcrumb">—</span><span class="detail-meta-sep">·</span><span id="detail-subtitle">—</span>
+        </p>
       </div>
       <button class="btn-close" id="btn-close-detail">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
@@ -468,10 +469,10 @@
     </div>
 
     <div class="modal-footer detail-footer">
-      <button class="btn btn-danger" id="btn-detail-excluir">Excluir tarefa</button>
+      <button class="btn btn-danger btn-sm" id="btn-detail-excluir">Excluir tarefa</button>
       <div class="detail-footer-direita">
-        <button class="btn btn-ghost" id="btn-detail-fechar">Fechar</button>
-        <button class="btn btn-primary" id="btn-concluir">Concluir Tarefa</button>
+        <button class="btn btn-ghost btn-sm" id="btn-detail-fechar">Fechar</button>
+        <button class="btn btn-primary btn-sm" id="btn-concluir">Concluir Tarefa</button>
       </div>
     </div>
   </div>
@@ -797,6 +798,6 @@
   <span style="color:var(--muted);font-size:13px;">Conectando ao servidor...</span>
 </div>
 
-<script src="static/script.js?v=2026-10-19g"></script>
+<script src="static/script.js?v=2026-10-19h"></script>
 </body>
 </html>
