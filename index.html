@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Portal de Tarefas</title>
-  <link rel="stylesheet" href="static/style.css?v=2026-10-19c" />
+  <link rel="stylesheet" href="static/style.css?v=2026-10-19f" />
 </head>
 <body>
 
@@ -355,10 +355,13 @@
 ══════════════════════════════════════════════════════ -->
 <div class="modal-overlay hidden" id="modal-detail-overlay">
   <div class="modal" id="modal-detail">
-    <div class="modal-header">
+
+    <!-- Cabeçalho: caminho, título e autoria -->
+    <div class="modal-header detail-header">
       <div class="modal-header-info">
+        <div class="detail-breadcrumb" id="detail-breadcrumb">—</div>
         <div class="detail-title-row">
-          <h2 id="detail-title">—</h2>
+          <h2 id="detail-title" title="Clique para editar">—</h2>
           <button class="btn-edit-title" id="btn-edit-title" title="Editar título">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
           </button>
@@ -372,10 +375,47 @@
       </button>
     </div>
 
+    <!-- Propriedades lado a lado -->
+    <div class="detail-props">
+      <div class="detail-prop">
+        <label class="detail-prop-label" for="detail-responsavel">Responsável</label>
+        <select id="detail-responsavel"></select>
+      </div>
+      <div class="detail-prop">
+        <label class="detail-prop-label" for="detail-coluna-sel">Coluna</label>
+        <select id="detail-coluna-sel"></select>
+      </div>
+      <div class="detail-prop">
+        <label class="detail-prop-label" for="detail-status-sel">Status</label>
+        <select id="detail-status-sel">
+          <option value="pendente">Pendente</option>
+          <option value="em andamento">Em andamento</option>
+        </select>
+      </div>
+      <div class="detail-prop">
+        <label class="detail-prop-label" for="detail-urgencia-sel">Urgência</label>
+        <select id="detail-urgencia-sel">
+          <option value="alta">Alta</option>
+          <option value="media">Média</option>
+          <option value="baixa">Baixa</option>
+        </select>
+      </div>
+      <div class="detail-prop">
+        <label class="detail-prop-label" for="detail-data-prazo-sel">Prazo</label>
+        <input type="date" id="detail-data-prazo-sel" />
+      </div>
+      <div class="detail-prop detail-prop-check">
+        <label class="checkbox-row">
+          <input type="checkbox" id="detail-diaria" />
+          Repetir todo dia
+        </label>
+      </div>
+    </div>
+
     <div class="modal-body">
       <div class="detail-grid">
 
-        <!-- Coluna esquerda: descrição + etapas -->
+        <!-- Esquerda: conteúdo da tarefa -->
         <div class="detail-col detail-col-left">
           <div class="detail-section detail-section-desc">
             <div class="detail-section-title">Descrição</div>
@@ -383,10 +423,14 @@
           </div>
 
           <div class="detail-section detail-section-etapas">
-            <div class="detail-section-title">Etapas</div>
+            <div class="detail-section-title detail-section-title-row">
+              Etapas
+              <span class="detail-etapas-progresso" id="detail-etapas-progresso"></span>
+            </div>
+            <div class="progress-bar detail-etapas-barra" id="detail-etapas-barra"><div class="progress-fill"></div></div>
             <div class="checklist" id="detail-checklist"></div>
             <div class="etapa-add-row">
-              <input type="text" id="detail-input-etapa" placeholder="Descreva uma nova etapa..." />
+              <input type="text" id="detail-input-etapa" placeholder="Adicionar etapa..." />
               <button type="button" class="btn btn-ghost btn-sm" id="btn-detail-add-etapa">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
                   <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
@@ -397,60 +441,19 @@
           </div>
 
           <div class="detail-section detail-section-fixed">
-            <div class="detail-section-title">Observações</div>
-            <textarea id="detail-obs" placeholder="Adicione observações sobre o andamento..."></textarea>
+            <div class="detail-section-title">Resultado</div>
+            <textarea id="detail-retorno" placeholder="O que foi entregue ou o retorno obtido..."></textarea>
           </div>
 
-          <div class="detail-section detail-section-fixed">
-            <div class="detail-section-title">Retorno / Resultado</div>
-            <textarea id="detail-retorno" placeholder="Descreva o resultado ou retorno antes de concluir..."></textarea>
+          <!-- Só aparece em tarefas antigas que já têm observações -->
+          <div class="detail-section detail-section-fixed hidden" id="detail-section-obs">
+            <div class="detail-section-title">Observações</div>
+            <textarea id="detail-obs"></textarea>
           </div>
         </div>
 
-        <!-- Coluna direita: informações + atualização -->
+        <!-- Direita: atividade (comentários e histórico) -->
         <div class="detail-col detail-col-right">
-          <div class="detail-section">
-            <div class="detail-section-title">Informações</div>
-
-            <div class="field-row">
-              <div class="form-group">
-                <label class="form-label">Status</label>
-                <select id="detail-status-sel">
-                  <option value="pendente">Pendente</option>
-                  <option value="em andamento">Em andamento</option>
-                </select>
-              </div>
-              <div class="form-group">
-                <label class="form-label">Urgência</label>
-                <select id="detail-urgencia-sel">
-                  <option value="baixa">Baixa</option>
-                  <option value="media">Média</option>
-                  <option value="alta">Alta</option>
-                </select>
-              </div>
-            </div>
-
-            <div class="field-row">
-              <div class="form-group">
-                <label class="form-label">Coluna</label>
-                <select id="detail-coluna-sel"></select>
-                <label class="checkbox-row checkbox-diaria">
-                  <input type="checkbox" id="detail-diaria" />
-                  Repetir todo dia
-                </label>
-              </div>
-              <div class="form-group">
-                <label class="form-label">Data do Prazo</label>
-                <input type="date" id="detail-data-prazo-sel" />
-              </div>
-            </div>
-
-            <div class="form-group">
-              <label class="form-label">Responsável</label>
-              <select id="detail-responsavel"></select>
-            </div>
-          </div>
-
           <div class="detail-section detail-section-atividade">
             <div class="detail-section-title">Atividade</div>
             <div class="comentario-add">
@@ -464,9 +467,12 @@
       </div>
     </div>
 
-    <div class="modal-footer">
-      <button class="btn btn-ghost" onclick="document.getElementById('modal-detail-overlay').classList.add('hidden')">Fechar</button>
-      <button class="btn btn-primary" id="btn-concluir">Concluir Tarefa</button>
+    <div class="modal-footer detail-footer">
+      <button class="btn btn-danger" id="btn-detail-excluir">Excluir tarefa</button>
+      <div class="detail-footer-direita">
+        <button class="btn btn-ghost" id="btn-detail-fechar">Fechar</button>
+        <button class="btn btn-primary" id="btn-concluir">Concluir Tarefa</button>
+      </div>
     </div>
   </div>
 </div>
@@ -791,6 +797,6 @@
   <span style="color:var(--muted);font-size:13px;">Conectando ao servidor...</span>
 </div>
 
-<script src="static/script.js?v=2026-10-19c"></script>
+<script src="static/script.js?v=2026-10-19f"></script>
 </body>
 </html>

@@ -1441,6 +1441,7 @@ document.getElementById("btn-save-create").addEventListener("click", async () =>
 const modalDetail = document.getElementById("modal-detail-overlay");
 
 document.getElementById("btn-close-detail").addEventListener("click", closeDetail);
+document.getElementById("btn-detail-fechar").addEventListener("click", closeDetail);
 modalDetail.addEventListener("click", e => { if (e.target === modalDetail) closeDetail(); });
 
 function openDetail(id) {
@@ -1461,7 +1462,21 @@ function openDetail(id) {
   carregarAtividade(id);
 
   document.getElementById("detail-title").textContent    = t.nome;
-  document.getElementById("detail-subtitle").textContent = `Criado em ${formatDate(t.criadoEm)}`;
+  const equipeT = state.equipes.find(e => e.id === t.equipeId);
+  const colunaT = colunaDaTarefa(t);
+  document.getElementById("detail-breadcrumb").textContent =
+    [equipeT?.nome, colunaT?.nome].filter(Boolean).join("  ›  ");
+  const criador    = state.users.find(u => u.id === t.criadoPor);
+  const concluidor = t.concluida ? state.users.find(u => u.id === (t.concluidoPor || t.responsavel)) : null;
+  document.getElementById("detail-subtitle").textContent =
+    `Criada${criador ? ` por ${criador.nome}` : ""} em ${formatDate(t.criadoEm)}` +
+    (t.concluida && t.concluidoEm ? ` · Concluída em ${formatDate(t.concluidoEm)}${concluidor ? ` por ${concluidor.nome}` : ""}` : "");
+  document.getElementById("detail-title").onclick = () => startEditTitle(t, id);
+  document.getElementById("btn-detail-excluir").onclick = async () => {
+    const antes = state.tarefas.length;
+    await excluirTarefa(t);
+    if (state.tarefas.length < antes) closeDetail();
+  };
 
   document.getElementById("btn-edit-title").onclick = () => startEditTitle(t, id);
 
@@ -1474,6 +1489,14 @@ function openDetail(id) {
     catch (err) { toast(err.message, true); }
   }, 600);
   inputDesc.oninput = () => { autoGrowTextarea(inputDesc, 120); salvarDescDebounced(); };
+
+  const etapasFeitas = t.etapas.filter(e => e.concluida).length;
+  document.getElementById("detail-etapas-progresso").textContent =
+    t.etapas.length ? `${etapasFeitas} de ${t.etapas.length}` : "";
+  const barra = document.getElementById("detail-etapas-barra");
+  barra.classList.toggle("hidden", t.etapas.length === 0);
+  barra.querySelector(".progress-fill").style.width =
+    t.etapas.length ? `${Math.round(etapasFeitas / t.etapas.length * 100)}%` : "0";
 
   const checklist = document.getElementById("detail-checklist");
   checklist.innerHTML = "";
@@ -1585,9 +1608,17 @@ function openDetail(id) {
 
   const inputDataPrazo = document.getElementById("detail-data-prazo-sel");
   inputDataPrazo.value = t.dataPrazo || "";
+  const marcarPrazo = () => {
+    inputDataPrazo.classList.remove("atrasada", "hoje");
+    const sit = situacaoPrazo(t);
+    if (sit) inputDataPrazo.classList.add(sit);
+    inputDataPrazo.title = { atrasada: "Atrasada", hoje: "Vence hoje" }[sit] || "";
+  };
+  marcarPrazo();
   inputDataPrazo.onchange = async () => {
     const dataAnterior = t.dataPrazo;
     t.dataPrazo = inputDataPrazo.value || null;
+    marcarPrazo();
     try {
       await api.patchTarefa(t.id, { dataPrazo: t.dataPrazo });
       renderBoard();
@@ -1633,8 +1664,14 @@ function openDetail(id) {
     }
   };
 
+  // Concluída é controlada pelo botão Concluir/Reabrir, não pelo Status.
   const selStatus = document.getElementById("detail-status-sel");
-  selStatus.value = t.status;
+  selStatus.querySelector('option[value="concluida"]')?.remove();
+  if (t.concluida) {
+    selStatus.insertAdjacentHTML("beforeend", '<option value="concluida">Concluída</option>');
+  }
+  selStatus.value = t.concluida ? "concluida" : t.status;
+  selStatus.disabled = t.concluida;
   selStatus.onchange = async () => {
     const statusAnterior = t.status;
     t.status = selStatus.value;
@@ -1650,6 +1687,8 @@ function openDetail(id) {
 
   const inputObs = document.getElementById("detail-obs");
   const inputRetorno = document.getElementById("detail-retorno");
+  // Observações deu lugar aos comentários; só aparece onde já havia texto.
+  document.getElementById("detail-section-obs").classList.toggle("hidden", !(t.observacoes || "").trim());
   inputObs.value     = t.observacoes || "";
   inputRetorno.value = t.retorno || "";
   autoGrowTextarea(inputObs, 160);
@@ -2598,7 +2637,9 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden) carr
 // ── Helpers ───────────────────────────────────────────────
 function formatDate(str) {
   if (!str) return "";
-  const d = new Date(str.includes("T") ? str : str + "T00:00:00");
+  // Aceita "aaaa-mm-dd", ISO com "T" e o formato do Postgres ("aaaa-mm-dd hh:mm:ss-03").
+  const d = str.length <= 10 ? new Date(str + "T00:00:00") : new Date(str.replace(" ", "T").replace(/([+-]\d{2})$/, "$1:00"));
+  if (isNaN(d)) return "";
   return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "2-digit" });
 }
 
