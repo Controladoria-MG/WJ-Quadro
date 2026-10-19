@@ -29,10 +29,18 @@ let state = {
 };
 
 // ── API helpers ───────────────────────────────────────────
+let salvamentosEmAndamento = 0;
+
 async function apiFetch(method, path, body = null) {
   const opts = { method, headers: { "Content-Type": "application/json" } };
   if (body !== null) opts.body = JSON.stringify(body);
-  const res = await fetch(`${API}${path}`, opts);
+  if (method !== "GET") salvamentosEmAndamento++;
+  let res;
+  try {
+    res = await fetch(`${API}${path}`, opts);
+  } finally {
+    if (method !== "GET") salvamentosEmAndamento--;
+  }
   if (res.status === 401 && state.current) {
     logout();
     throw new Error("Sessão expirada. Entre novamente.");
@@ -68,8 +76,10 @@ const api = {
 };
 
 // ── Data helpers ──────────────────────────────────────────
-function todayStr() {
-  return new Date().toISOString().slice(0, 10);
+// Data (aaaa-mm-dd) no horário de Brasília. Com toISOString() o dia virava
+// às 21h, porque o UTC já está no dia seguinte.
+function todayStr(d = new Date()) {
+  return d.toLocaleDateString("sv-SE", { timeZone: "America/Sao_Paulo" });
 }
 
 function isDiariaFeitaHoje(t) {
@@ -163,6 +173,50 @@ async function carregarDados() {
   const escolhida = state.equipes.find(eq => eq.id === salva) || doUsuario[0] || state.equipes[0];
   state.equipeAtual = escolhida ? escolhida.id : null;
 }
+
+// ── Atualização automática ────────────────────────────────
+// Busca de novo equipes e tarefas a cada 20s (e ao voltar para a aba), para
+// o que outras pessoas mudaram aparecer sem F5. Não redesenha enquanto a
+// pessoa está mexendo em algo: janela aberta, digitando, arrastando um card
+// ou com um salvamento ainda em andamento.
+const INTERVALO_ATUALIZACAO = 20000;
+
+function usuarioOcupado() {
+  if (salvamentosEmAndamento > 0) return true;
+  if (document.querySelector(".modal-overlay:not(.hidden):not(#loading-overlay)")) return true;
+  if (document.querySelector(".task-card.dragging")) return true;
+  if (document.getElementById("admin-screen").classList.contains("visible")) return true;
+  const ativo = document.activeElement;
+  return !!ativo && ["INPUT", "TEXTAREA", "SELECT"].includes(ativo.tagName);
+}
+
+async function atualizarEmSegundoPlano() {
+  if (!state.current || document.hidden || usuarioOcupado()) return;
+  let users, equipes, tarefas;
+  try {
+    [users, equipes, tarefas] = await Promise.all([
+      api.getUsuarios(), api.getEquipes(), api.getTarefas(),
+    ]);
+  } catch (e) {
+    return; // sem conexão agora: tenta de novo no próximo ciclo
+  }
+  if (!state.current || usuarioOcupado()) return;
+
+  state.users   = users;
+  state.equipes = equipes;
+  state.tarefas = tarefas;
+  resetDiariasSeNecessario();
+  if (!equipeAtual()) state.equipeAtual = state.equipes[0]?.id ?? null;
+
+  renderFiltroUsuarios();
+  renderBoard();
+  if (document.getElementById("concluded-screen").classList.contains("visible")) renderConcluded();
+}
+
+setInterval(atualizarEmSegundoPlano, INTERVALO_ATUALIZACAO);
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) atualizarEmSegundoPlano();
+});
 
 // ── Boot ──────────────────────────────────────────────────
 async function boot() {
@@ -540,12 +594,20 @@ function aplicarColuna(t, coluna) {
   }
 }
 
+// Campos que mudam juntos quando a tarefa troca de coluna ou é concluída.
+function camposConclusao(t) {
+  return {
+    colunaId: t.colunaId, concluida: t.concluida, status: t.status,
+    concluidoEm: t.concluidoEm, concluidoPor: t.concluidoPor,
+  };
+}
+
 async function moverTarefa(t, coluna) {
   const anterior = { ...t };
   aplicarColuna(t, coluna);
   renderBoard();
   try {
-    Object.assign(t, await api.atualizarTarefa(t.id, t));
+    Object.assign(t, await api.patchTarefa(t.id, camposConclusao(t)));
     renderBoard();
   } catch (err) {
     Object.assign(t, anterior);
@@ -824,7 +886,7 @@ document.getElementById("btn-back-board").addEventListener("click", showBoardVie
 
 function dentroDoPeriodo(t, periodo) {
   if (!t.concluidoEm) return false;
-  if (periodo === "hoje") return t.concluidoEm.slice(0, 10) === todayStr();
+  if (periodo === "hoje") return todayStr(new Date(t.concluidoEm)) === todayStr();
   const dias = periodo === "semana" ? 7 : 30;
   return new Date(t.concluidoEm).getTime() >= Date.now() - dias * 86400000;
 }
@@ -1412,7 +1474,7 @@ function openDetail(id) {
       item.addEventListener("click", async () => {
         etapa.concluida = !etapa.concluida;
         try {
-          await api.atualizarTarefa(t.id, t);
+          await api.patchTarefa(t.id, { etapas: t.etapas });
           openDetail(id);
           renderBoard();
         } catch (err) {
@@ -1433,7 +1495,7 @@ function openDetail(id) {
         if (!ok) return;
         t.etapas = t.etapas.filter(e2 => e2 !== etapa);
         try {
-          await api.atualizarTarefa(t.id, t);
+          await api.patchTarefa(t.id, { etapas: t.etapas });
           openDetail(id);
           renderBoard();
           toast("Etapa excluída.");
@@ -1452,7 +1514,7 @@ function openDetail(id) {
     if (!val) return;
     t.etapas.push({ id: Date.now(), texto: val, concluida: false });
     try {
-      await api.atualizarTarefa(t.id, t);
+      await api.patchTarefa(t.id, { etapas: t.etapas });
       openDetail(id);
       renderBoard();
     } catch (err) {
@@ -1502,7 +1564,7 @@ function openDetail(id) {
     const dataAnterior = t.dataPrazo;
     t.dataPrazo = inputDataPrazo.value || null;
     try {
-      await api.atualizarTarefa(t.id, t);
+      await api.patchTarefa(t.id, { dataPrazo: t.dataPrazo });
       renderBoard();
     } catch (err) {
       t.dataPrazo = dataAnterior;
@@ -1517,7 +1579,7 @@ function openDetail(id) {
     const urgenciaAnterior = t.urgencia;
     t.urgencia = selUrgencia.value;
     try {
-      await api.atualizarTarefa(t.id, t);
+      await api.patchTarefa(t.id, { urgencia: t.urgencia });
       renderBoard();
     } catch (err) {
       t.urgencia = urgenciaAnterior;
@@ -1538,7 +1600,7 @@ function openDetail(id) {
   sel.onchange = async () => {
     const responsavelAnterior = t.responsavel;
     t.responsavel = sel.value ? parseInt(sel.value) : null;
-    try { await api.atualizarTarefa(t.id, t); renderBoard(); }
+    try { await api.patchTarefa(t.id, { responsavel: t.responsavel }); renderBoard(); }
     catch (err) {
       t.responsavel = responsavelAnterior;
       sel.value = responsavelAnterior ?? "";
@@ -1552,7 +1614,7 @@ function openDetail(id) {
     const statusAnterior = t.status;
     t.status = selStatus.value;
     try {
-      await api.atualizarTarefa(t.id, t);
+      await api.patchTarefa(t.id, { status: t.status });
       renderBoard();
     } catch (err) {
       t.status = statusAnterior;
@@ -1604,7 +1666,7 @@ function openDetail(id) {
       else { t.concluida = false; t.status = "pendente"; }
     }
     try {
-      Object.assign(t, await api.atualizarTarefa(t.id, t));
+      Object.assign(t, await api.patchTarefa(t.id, camposConclusao(t)));
       closeDetail();
       renderBoard();
       if (document.getElementById("concluded-screen").classList.contains("visible")) renderConcluded();
@@ -1683,7 +1745,7 @@ function startEditEtapa(t, etapa, item, id) {
     const textoAnterior = etapa.texto;
     etapa.texto = val;
     try {
-      await api.atualizarTarefa(t.id, t);
+      await api.patchTarefa(t.id, { etapas: t.etapas });
       openDetail(id);
       renderBoard();
     } catch (err) {
