@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Portal de Tarefas</title>
-  <link rel="stylesheet" href="static/style.css?v=2026-10-19h" />
+  <link rel="stylesheet" href="static/style.css?v=2026-10-19i" />
 </head>
 <body>
 
@@ -71,6 +71,11 @@
         </svg>
       </div>
       <span>Portal de Tarefas</span>
+      <button class="btn-sidebar-toggle" id="btn-sidebar-toggle" title="Recolher barra lateral">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/>
+        </svg>
+      </button>
     </div>
 
     <div class="nav-section-label nav-section-row">
@@ -84,7 +89,7 @@
 
     <div class="nav-section-label" style="margin-top:18px;">Menu</div>
 
-    <div class="nav-item hidden" id="nav-admin">
+    <div class="nav-item hidden" id="nav-admin" title="Gerenciador de Base">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <ellipse cx="12" cy="5" rx="8" ry="3"/>
         <path d="M4 5v14c0 1.66 3.58 3 8 3s8-1.34 8-3V5"/>
@@ -123,7 +128,7 @@
           <span id="sb-user-cargo">—</span>
         </div>
       </div>
-      <button class="btn-logout" id="btn-logout">
+      <button class="btn-logout" id="btn-logout" title="Sair">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
           <polyline points="16 17 21 12 16 7"/>
@@ -798,6 +803,6 @@
   <span style="color:var(--muted);font-size:13px;">Conectando ao servidor...</span>
 </div>
 
-<script src="static/script.js?v=2026-10-19h"></script>
+<script src="static/script.js?v=2026-10-19i"></script>
 </body>
 </html>

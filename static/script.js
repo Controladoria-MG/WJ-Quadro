@@ -146,9 +146,13 @@ function renderNavEquipes() {
         <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
         <rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
       </svg>
+      <span class="nav-equipe-sigla"></span>
       <span class="nav-equipe-nome"></span>
       <span class="nav-equipe-count">${abertas || ""}</span>`;
     el.querySelector(".nav-equipe-nome").textContent = eq.nome;
+    // Iniciais mostradas quando a barra lateral está recolhida.
+    el.querySelector(".nav-equipe-sigla").textContent =
+      eq.nome.split(/\s+/).filter(Boolean).slice(0, 2).map(p => p[0]).join("").toUpperCase();
     el.title = eq.nome;
     el.addEventListener("click", () => { showBoardView(); escolherEquipe(eq.id); });
     nav.appendChild(el);
@@ -229,8 +233,22 @@ document.addEventListener("visibilitychange", () => {
   if (!document.hidden) atualizarEmSegundoPlano();
 });
 
+// ── Barra lateral recolhível ──────────────────────────────
+function aplicarSidebarRecolhida(recolhida) {
+  document.getElementById("app").classList.toggle("sidebar-recolhida", recolhida);
+  document.getElementById("btn-sidebar-toggle").title =
+    recolhida ? "Expandir barra lateral" : "Recolher barra lateral";
+}
+
+document.getElementById("btn-sidebar-toggle").addEventListener("click", () => {
+  const recolhida = !document.getElementById("app").classList.contains("sidebar-recolhida");
+  aplicarSidebarRecolhida(recolhida);
+  salvarPreferencia("sidebarRecolhida", recolhida ? "1" : "");
+});
+
 // ── Boot ──────────────────────────────────────────────────
 async function boot() {
+  aplicarSidebarRecolhida(lerPreferencia("sidebarRecolhida", "") === "1");
   state.visao     = lerPreferencia("visao", "quadro");
   state.ordenacao = lerPreferencia("ordenacao", "criacao");
   mostrarQuadro();
