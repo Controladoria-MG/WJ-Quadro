@@ -1144,9 +1144,13 @@ def criar_usuario(usuario: Usuario):
 
     with get_conn() as conn:
         with conn.cursor() as cur:
+            # Banco recém-criado: a primeira pessoa cadastrada vira administradora,
+            # senão ninguém conseguiria criar equipes nem dar acesso aos outros.
+            cur.execute("SELECT EXISTS(SELECT 1 FROM usuarios WHERE is_admin) AS tem")
+            primeiro_admin = not cur.fetchone()["tem"]
             cur.execute(
-                "INSERT INTO usuarios (nome, cargo, avatar) VALUES (%s, %s, %s) RETURNING *",
-                (usuario.nome, usuario.cargo or "Colaborador", avatar)
+                "INSERT INTO usuarios (nome, cargo, avatar, is_admin) VALUES (%s, %s, %s, %s) RETURNING *",
+                (usuario.nome, usuario.cargo or "Colaborador", avatar, primeiro_admin)
             )
             conn.commit()
             return row_to_usuario(cur.fetchone())
