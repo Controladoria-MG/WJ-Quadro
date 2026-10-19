@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Portal de Tarefas</title>
-  <link rel="stylesheet" href="static/style.css?v=2026-10-19i" />
+  <link rel="stylesheet" href="static/style.css?v=2026-10-19k" />
 </head>
 <body>
 
@@ -89,6 +89,13 @@
 
     <div class="nav-section-label" style="margin-top:18px;">Menu</div>
 
+    <div class="nav-item" id="nav-dashboard" title="Dashboard">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>
+      </svg>
+      Dashboard
+    </div>
+
     <div class="nav-item hidden" id="nav-admin" title="Gerenciador de Base">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <ellipse cx="12" cy="5" rx="8" ry="3"/>
@@ -146,7 +153,7 @@
     <div id="topbar">
       <div class="topbar-title">
         <h1 id="topbar-titulo">Tarefas</h1>
-        <p>Crie e acompanhe tarefas internas da equipe</p>
+        <p id="topbar-subtitulo">Crie e acompanhe tarefas internas da equipe</p>
       </div>
       <div class="topbar-actions">
         <div class="notif-wrap" id="notif-wrap">
@@ -221,6 +228,21 @@
     </div>
 
     <!-- Gerenciador de Base -->
+    <div id="dashboard-screen">
+      <div class="admin-topbar dash-topbar">
+        <div class="dash-filtros">
+          <select id="dash-equipe" class="ordenacao-sel"></select>
+          <div class="visao-toggle" id="dash-periodo">
+            <button type="button" data-dias="7">7 dias</button>
+            <button type="button" data-dias="30">30 dias</button>
+            <button type="button" data-dias="90">90 dias</button>
+          </div>
+        </div>
+      </div>
+      <div class="dash-body" id="dash-body"></div>
+      <div class="dash-tooltip hidden" id="dash-tooltip"></div>
+    </div>
+
     <div id="admin-screen">
       <div class="admin-topbar">
         <button class="btn btn-ghost btn-sm" id="btn-back-board-admin">
@@ -803,6 +825,6 @@
   <span style="color:var(--muted);font-size:13px;">Conectando ao servidor...</span>
 </div>
 
-<script src="static/script.js?v=2026-10-19i"></script>
+<script src="static/script.js?v=2026-10-19k"></script>
 </body>
 </html>
