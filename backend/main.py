@@ -245,6 +245,29 @@ def init_db():
                     criar_colunas_padrao(cur, e["id"])
             conn.commit()
 
+            # Comentários e histórico de cada tarefa
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS comentarios (
+                    id         SERIAL PRIMARY KEY,
+                    tarefa_id  INTEGER NOT NULL REFERENCES tarefas(id) ON DELETE CASCADE,
+                    usuario_id INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
+                    texto      TEXT NOT NULL,
+                    criado_em  TEXT NOT NULL
+                )
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS historico (
+                    id         SERIAL PRIMARY KEY,
+                    tarefa_id  INTEGER NOT NULL REFERENCES tarefas(id) ON DELETE CASCADE,
+                    usuario_id INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
+                    acao       TEXT NOT NULL,
+                    criado_em  TEXT NOT NULL
+                )
+            """)
+            cur.execute("CREATE INDEX IF NOT EXISTS comentarios_tarefa_idx ON comentarios (tarefa_id)")
+            cur.execute("CREATE INDEX IF NOT EXISTS historico_tarefa_idx ON historico (tarefa_id)")
+            conn.commit()
+
 def criar_colunas_padrao(cur, equipe_id: int):
     for ordem, (nome, cor, finaliza) in enumerate(COLUNAS_PADRAO):
         cur.execute(
@@ -281,6 +304,7 @@ def row_to_tarefa(row: dict) -> dict:
         "concluidoEm":    row["concluido_em"],
         "concluidoPor":   row["concluido_por"],
         "avisoConfirmado": row["aviso_confirmado"],
+        **({"comentarios": row["n_comentarios"]} if "n_comentarios" in row else {}),
     }
 
 def row_to_usuario(row: dict) -> dict:
@@ -351,6 +375,89 @@ def primeira_coluna(cur, equipe_id: int) -> Optional[int]:
     )
     row = cur.fetchone()
     return row["id"] if row else None
+
+def registrar(cur, tarefa_id: int, usuario_id: int, acao: str, agrupar: bool = False):
+    """Grava uma linha no histórico. Com agrupar=True, não repete a mesma
+    ação da mesma pessoa feita há menos de 10 minutos (os campos de texto
+    salvam a cada pausa na digitação)."""
+    if agrupar:
+        cur.execute("""
+            SELECT criado_em FROM historico
+            WHERE tarefa_id = %s AND usuario_id = %s AND acao = %s
+            ORDER BY id DESC LIMIT 1
+        """, (tarefa_id, usuario_id, acao))
+        ultimo = cur.fetchone()
+        if ultimo and (datetime.now(timezone.utc) - datetime.fromisoformat(ultimo["criado_em"])).total_seconds() < 600:
+            return
+    cur.execute(
+        "INSERT INTO historico (tarefa_id, usuario_id, acao, criado_em) VALUES (%s,%s,%s,%s)",
+        (tarefa_id, usuario_id, acao, agora_iso())
+    )
+
+ROTULO_STATUS   = {"pendente": "Pendente", "em andamento": "Em andamento", "concluida": "Concluída"}
+ROTULO_URGENCIA = {"alta": "Alta", "media": "Média", "baixa": "Baixa"}
+
+def descrever_mudancas(cur, atual: dict, novos: dict) -> List[tuple]:
+    """Compara a tarefa antes/depois e devolve [(ação, agrupar)] em português."""
+    def nome_usuario(uid):
+        if uid is None:
+            return None
+        cur.execute("SELECT nome FROM usuarios WHERE id = %s", (uid,))
+        r = cur.fetchone()
+        return r["nome"] if r else "alguém"
+
+    def mudou(col):
+        return col in novos and novos[col] != atual[col]
+
+    acoes = []
+    if mudou("nome"):
+        acoes.append((f'renomeou para "{novos["nome"]}"', False))
+    if mudou("concluida"):
+        acoes.append(("concluiu a tarefa" if novos["concluida"] else "reabriu a tarefa", False))
+    if mudou("coluna_id") and novos["coluna_id"] is not None:
+        cur.execute("SELECT nome FROM colunas WHERE id = %s", (novos["coluna_id"],))
+        r = cur.fetchone()
+        if r:
+            acoes.append((f'moveu para "{r["nome"]}"', False))
+    if mudou("responsavel"):
+        nome = nome_usuario(novos["responsavel"])
+        acoes.append((f"atribuiu a {nome}" if nome else "removeu o responsável", False))
+    if mudou("status") and novos["status"] != "concluida" and not mudou("concluida"):
+        acoes.append((f'mudou o status para {ROTULO_STATUS.get(novos["status"], novos["status"])}', False))
+    if mudou("urgencia"):
+        acoes.append((f'mudou a urgência para {ROTULO_URGENCIA.get(novos["urgencia"], novos["urgencia"])}', False))
+    if mudou("data_prazo"):
+        if novos["data_prazo"]:
+            a, m, d = novos["data_prazo"][:10].split("-")
+            acoes.append((f"definiu o prazo para {d}/{m}/{a}", False))
+        else:
+            acoes.append(("removeu a data do prazo", False))
+    if mudou("prazo") and "diaria" in (novos["prazo"], atual["prazo"]):
+        acoes.append(("passou a repetir todo dia" if novos["prazo"] == "diaria" else "deixou de repetir todo dia", False))
+    if mudou("diaria_feita_em") and novos["diaria_feita_em"]:
+        acoes.append(("marcou como feita hoje", True))
+    for col, rotulo in (("descricao", "a descrição"), ("observacoes", "as observações"), ("retorno", "o retorno")):
+        if mudou(col):
+            acoes.append((f"editou {rotulo}", True))
+    if "etapas" in novos:
+        antes = atual["etapas"]
+        if isinstance(antes, str):
+            antes = json.loads(antes)
+        depois = json.loads(novos["etapas"]) if isinstance(novos["etapas"], str) else novos["etapas"]
+        antes_por_id  = {e["id"]: e for e in antes or []}
+        depois_por_id = {e["id"]: e for e in depois or []}
+        for eid, e in depois_por_id.items():
+            velho = antes_por_id.get(eid)
+            if not velho:
+                acoes.append((f'adicionou a etapa "{e["texto"]}"', False))
+            elif e["concluida"] != velho["concluida"]:
+                acoes.append((f'{"concluiu" if e["concluida"] else "desmarcou"} a etapa "{e["texto"]}"', False))
+            elif e["texto"] != velho["texto"]:
+                acoes.append((f'renomeou a etapa "{velho["texto"]}" para "{e["texto"]}"', False))
+        for eid, e in antes_por_id.items():
+            if eid not in depois_por_id:
+                acoes.append((f'excluiu a etapa "{e["texto"]}"', False))
+    return acoes
 
 def carregar_tarefa(cur, tarefa_id: int) -> dict:
     cur.execute("SELECT * FROM tarefas WHERE id = %s", (tarefa_id,))
@@ -426,11 +533,12 @@ def listar_tarefas(request: Request):
     with get_conn() as conn:
         with conn.cursor() as cur:
             usuario = exigir_usuario(request, cur)
+            contagem = "(SELECT COUNT(*) FROM comentarios c WHERE c.tarefa_id = t.id) AS n_comentarios"
             if usuario["is_admin"]:
-                cur.execute("SELECT * FROM tarefas ORDER BY id")
+                cur.execute(f"SELECT t.*, {contagem} FROM tarefas t ORDER BY t.id")
             else:
-                cur.execute("""
-                    SELECT t.* FROM tarefas t
+                cur.execute(f"""
+                    SELECT t.*, {contagem} FROM tarefas t
                     JOIN equipe_membros m ON m.equipe_id = t.equipe_id AND m.usuario_id = %s
                     ORDER BY t.id
                 """, (usuario["id"],))
@@ -467,8 +575,10 @@ def criar_tarefa(tarefa: Tarefa, request: Request):
                 tarefa.retorno, criado_em, usuario["id"],
                 tarefa.concluida, tarefa.diariaFeitaEm
             ))
+            nova = cur.fetchone()
+            registrar(cur, nova["id"], usuario["id"], "criou a tarefa")
             conn.commit()
-            return row_to_tarefa(cur.fetchone())
+            return row_to_tarefa(nova)
 
 
 @app.put("/api/tarefas/{tarefa_id}")
@@ -517,8 +627,11 @@ def atualizar_tarefa(tarefa_id: int, tarefa: Tarefa, request: Request):
                 "diaria_feita_em": tarefa.diariaFeitaEm,
                 "concluido_em": tarefa.concluidoEm, "concluido_por": tarefa.concluidoPor,
             })
+            nova = cur.fetchone()
+            for acao, agrupar in descrever_mudancas(cur, atual, dict(nova)):
+                registrar(cur, tarefa_id, usuario["id"], acao, agrupar)
             conn.commit()
-            return row_to_tarefa(cur.fetchone())
+            return row_to_tarefa(nova)
 
 
 @app.patch("/api/tarefas/{tarefa_id}")
@@ -532,7 +645,7 @@ def patch_tarefa(tarefa_id: int, campos: dict, request: Request):
         "concluidoEm": "concluido_em", "concluidoPor": "concluido_por",
         "avisoConfirmado": "aviso_confirmado", "colunaId": "coluna_id",
     }
-    sets, values = [], []
+    sets, values, novos = [], [], {}
     for key, val in campos.items():
         col = col_map.get(key)
         if not col:
@@ -541,6 +654,7 @@ def patch_tarefa(tarefa_id: int, campos: dict, request: Request):
             val = json.dumps(val, ensure_ascii=False)
         sets.append(f"{col} = %s")
         values.append(val)
+        novos[col] = val
 
     if not sets:
         raise HTTPException(status_code=400, detail="Nenhum campo válido para atualizar")
@@ -560,8 +674,11 @@ def patch_tarefa(tarefa_id: int, campos: dict, request: Request):
                 f"UPDATE tarefas SET {', '.join(sets)} WHERE id = %s RETURNING *",
                 values
             )
+            nova = cur.fetchone()
+            for acao, agrupar in descrever_mudancas(cur, atual, novos):
+                registrar(cur, tarefa_id, usuario["id"], acao, agrupar)
             conn.commit()
-            return row_to_tarefa(cur.fetchone())
+            return row_to_tarefa(nova)
 
 
 @app.delete("/api/tarefas/{tarefa_id}", status_code=204)
@@ -572,6 +689,69 @@ def deletar_tarefa(tarefa_id: int, request: Request):
             atual = carregar_tarefa(cur, tarefa_id)
             exigir_membro(cur, usuario, atual["equipe_id"])
             cur.execute("DELETE FROM tarefas WHERE id = %s", (tarefa_id,))
+            conn.commit()
+    return None
+
+# ══════════════════════════════════════════════════════════
+# ROTAS — COMENTÁRIOS E HISTÓRICO
+# ══════════════════════════════════════════════════════════
+
+class Comentario(BaseModel):
+    texto: str
+
+
+@app.get("/api/tarefas/{tarefa_id}/atividade")
+def atividade_tarefa(tarefa_id: int, request: Request):
+    """Comentários e histórico da tarefa, mais recentes primeiro."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            usuario = exigir_usuario(request, cur)
+            exigir_membro(cur, usuario, carregar_tarefa(cur, tarefa_id)["equipe_id"])
+            cur.execute("""
+                SELECT id, usuario_id, texto AS conteudo, criado_em, 'comentario' AS tipo
+                FROM comentarios WHERE tarefa_id = %s
+                UNION ALL
+                SELECT id, usuario_id, acao AS conteudo, criado_em, 'historico' AS tipo
+                FROM historico WHERE tarefa_id = %s
+                ORDER BY criado_em DESC
+                LIMIT 200
+            """, (tarefa_id, tarefa_id))
+            return [{
+                "id": r["id"], "tipo": r["tipo"], "usuarioId": r["usuario_id"],
+                "texto": r["conteudo"], "criadoEm": r["criado_em"],
+            } for r in cur.fetchall()]
+
+
+@app.post("/api/tarefas/{tarefa_id}/comentarios", status_code=201)
+def comentar(tarefa_id: int, comentario: Comentario, request: Request):
+    texto = comentario.texto.strip()
+    if not texto:
+        raise HTTPException(status_code=400, detail="Escreva o comentário.")
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            usuario = exigir_usuario(request, cur)
+            exigir_membro(cur, usuario, carregar_tarefa(cur, tarefa_id)["equipe_id"])
+            cur.execute(
+                "INSERT INTO comentarios (tarefa_id, usuario_id, texto, criado_em) VALUES (%s,%s,%s,%s) RETURNING id",
+                (tarefa_id, usuario["id"], texto, agora_iso())
+            )
+            conn.commit()
+            return {"id": cur.fetchone()["id"]}
+
+
+@app.delete("/api/comentarios/{comentario_id}", status_code=204)
+def apagar_comentario(comentario_id: int, request: Request):
+    """Só quem escreveu (ou um administrador geral) apaga o comentário."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            usuario = exigir_usuario(request, cur)
+            cur.execute("SELECT * FROM comentarios WHERE id = %s", (comentario_id,))
+            c = cur.fetchone()
+            if not c:
+                raise HTTPException(status_code=404, detail="Comentário não encontrado")
+            if c["usuario_id"] != usuario["id"]:
+                exigir_admin(usuario)
+            cur.execute("DELETE FROM comentarios WHERE id = %s", (comentario_id,))
             conn.commit()
     return None
 

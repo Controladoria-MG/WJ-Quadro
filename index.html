@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Portal de Tarefas</title>
-  <link rel="stylesheet" href="static/style.css" />
+  <link rel="stylesheet" href="static/style.css?v=2026-10-19" />
 </head>
 <body>
 
@@ -173,8 +173,13 @@
       </div>
     </div>
 
-    <!-- Board (4 colunas) -->
+    <!-- Board (colunas definidas por equipe) -->
     <div id="board">
+      <!-- renderizado via JS -->
+    </div>
+
+    <!-- Visão em tabela -->
+    <div id="tabela-view" class="hidden">
       <!-- renderizado via JS -->
     </div>
 
@@ -429,6 +434,15 @@
               <label class="form-label">Responsável</label>
               <select id="detail-responsavel"></select>
             </div>
+          </div>
+
+          <div class="detail-section detail-section-atividade">
+            <div class="detail-section-title">Atividade</div>
+            <div class="comentario-add">
+              <textarea id="detail-comentario" placeholder="Escreva um comentário... (Ctrl+Enter envia)"></textarea>
+              <button type="button" class="btn btn-primary btn-sm" id="btn-comentar">Comentar</button>
+            </div>
+            <div class="atividade-list" id="detail-atividade"></div>
           </div>
         </div>
 
@@ -762,6 +776,6 @@
   <span style="color:var(--muted);font-size:13px;">Conectando ao servidor...</span>
 </div>
 
-<script src="static/script.js"></script>
+<script src="static/script.js?v=2026-10-19"></script>
 </body>
 </html>

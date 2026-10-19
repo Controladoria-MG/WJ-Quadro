@@ -26,6 +26,8 @@ let state = {
   filtroUsuario: null,
   filtroConcluidoUsuario:  null,
   filtroConcluidoPeriodo:  "todos",
+  visao:        "quadro",    // "quadro" (kanban) ou "tabela"
+  ordenacao:    "criacao",   // "criacao", "prazo" ou "urgencia"
 };
 
 // ── API helpers ───────────────────────────────────────────
@@ -57,7 +59,14 @@ const api = {
   getTarefas:      ()         => apiFetch("GET",    "/api/tarefas"),
   criarTarefa:     (t)        => apiFetch("POST",   "/api/tarefas", t),
   atualizarTarefa: (id, t)    => apiFetch("PUT",    `/api/tarefas/${id}`, t),
-  patchTarefa:     (id, body) => apiFetch("PATCH",  `/api/tarefas/${id}`, body),
+  patchTarefa:     async (id, body) => {
+    const r = await apiFetch("PATCH", `/api/tarefas/${id}`, body);
+    aoAlterarTarefa(id);
+    return r;
+  },
+  getAtividade:    (id)       => apiFetch("GET",    `/api/tarefas/${id}/atividade`),
+  comentar:        (id, texto) => apiFetch("POST",  `/api/tarefas/${id}/comentarios`, { texto }),
+  apagarComentario:(id)       => apiFetch("DELETE", `/api/comentarios/${id}`),
   deletarTarefa:   (id)       => apiFetch("DELETE", `/api/tarefas/${id}`),
   getUsuarios:     ()         => apiFetch("GET",    "/api/usuarios"),
   criarUsuario:    (u)        => apiFetch("POST",   "/api/usuarios", u),
@@ -220,6 +229,9 @@ document.addEventListener("visibilitychange", () => {
 
 // ── Boot ──────────────────────────────────────────────────
 async function boot() {
+  state.visao     = lerPreferencia("visao", "quadro");
+  state.ordenacao = lerPreferencia("ordenacao", "criacao");
+  mostrarQuadro();
   showLoading(true);
   try {
     state.users = await api.getUsuarios();
@@ -548,6 +560,7 @@ function renderFiltroUsuarios() {
   });
 
   bar.appendChild(group);
+  bar.appendChild(controlesDaBarra());
 
   // Insere entre topbar e board
   const main   = document.getElementById("main");
@@ -556,7 +569,7 @@ function renderFiltroUsuarios() {
 
   // Só faz sentido enquanto o board está na tela — as telas de
   // concluídas/admin têm seus próprios filtros ou nenhum.
-  bar.classList.toggle("hidden", document.getElementById("board").classList.contains("hidden"));
+  bar.classList.toggle("hidden", !quadroVisivel());
 }
 
 // ── Board ─────────────────────────────────────────────────
@@ -617,6 +630,11 @@ async function moverTarefa(t, coluna) {
 }
 
 function renderBoard() {
+  if (state.visao === "tabela") {
+    renderTabela();
+    renderNavEquipes();
+    return;
+  }
   const board = document.getElementById("board");
   board.innerHTML = "";
 
@@ -626,15 +644,10 @@ function renderBoard() {
   board.style.setProperty("--ncols", Math.max(colunas.length, 1));
   board.classList.toggle("com-coluna-nova", gestor);
 
-  const daEquipe = tarefasDaEquipeAtual();
-  const tarefasFiltradas = state.filtroUsuario !== null
-    ? daEquipe.filter(t => t.responsavel === state.filtroUsuario)
-    : daEquipe;
+  const tarefasFiltradas = tarefasVisiveis();
 
   colunas.forEach(col => {
-    const tasks = tarefasFiltradas.filter(t =>
-      colunaDaTarefa(t)?.id === col.id && (col.finaliza || !t.concluida)
-    );
+    const tasks = tarefasDaColuna(tarefasFiltradas, col);
     const count = tasks.filter(t =>
       t.prazo === "diaria" ? !isDiariaFeitaHoje(t) : !t.concluida
     ).length;
@@ -680,9 +693,7 @@ function renderBoard() {
           <span>Nenhuma tarefa</span>
         </div>`;
     } else {
-      // Diárias já feitas hoje descem para o fim da coluna.
-      const sorted = [...tasks].sort((a, b) => (isDiariaFeitaHoje(a) ? 1 : 0) - (isDiariaFeitaHoje(b) ? 1 : 0));
-      sorted.forEach(t => body.appendChild(
+      ordenarTarefas(tasks).forEach(t => body.appendChild(
         t.prazo === "diaria" ? buildDiariaCard(t) : buildCard(t)
       ));
     }
@@ -803,7 +814,7 @@ function buildDiariaCard(t) {
 
 function buildCard(t) {
   const el = document.createElement("div");
-  el.className = "task-card";
+  el.className = "task-card" + (situacaoPrazo(t) === "atrasada" ? " card-atrasada" : "");
   el.draggable = true;
   el.addEventListener("dragstart", e => {
     e.dataTransfer.setData("text/plain", String(t.id));
@@ -840,7 +851,8 @@ function buildCard(t) {
     <div class="card-meta">
       <div class="urgency-dot ${urgClass}"></div>
       <span class="badge ${statusClass}">${statusLabel}</span>
-      ${t.dataPrazo ? `<span>${formatDate(t.dataPrazo)}</span>` : ""}
+      ${t.dataPrazo ? `<span class="card-prazo ${situacaoPrazo(t) || ""}">${
+        { atrasada: "Atrasada · ", hoje: "Vence hoje · " }[situacaoPrazo(t)] || ""}${formatDate(t.dataPrazo)}</span>` : ""}
     </div>
     ${etapasTotal > 0 ? `
       <div class="card-progress">
@@ -848,7 +860,7 @@ function buildCard(t) {
         <span class="progress-text">${etapasDone}/${etapasTotal}</span>
       </div>` : ""}
     <div class="card-footer">
-      <span class="card-date">${resp ? "" : "Sem resp."}</span>
+      <span class="card-date">${t.comentarios ? `<span class="card-comentarios" title="Comentários">${ICONE_COMENTARIO}${t.comentarios}</span>` : ""}${resp ? "" : "Sem resp."}</span>
       ${resp ? `<div class="card-resp">${avatarHTML(resp, "sm")}<span>${resp.nome}</span></div>` : ""}
     </div>
     ${t.concluida && t.concluidoEm ? `
@@ -876,7 +888,7 @@ function buildCard(t) {
 
 // ── View: Concluídas ──────────────────────────────────────
 document.getElementById("btn-concluded").addEventListener("click", () => {
-  document.getElementById("board").classList.add("hidden");
+  esconderQuadro();
   document.getElementById("filtro-usuario-bar")?.classList.add("hidden");
   document.getElementById("concluded-screen").classList.add("visible");
   renderConcluded();
@@ -986,14 +998,14 @@ function renderFiltrosConcluidas() {
 function showBoardView() {
   document.getElementById("admin-screen").classList.remove("visible");
   document.getElementById("concluded-screen").classList.remove("visible");
-  document.getElementById("board").classList.remove("hidden");
+  mostrarQuadro();
   document.getElementById("filtro-usuario-bar")?.classList.remove("hidden");
   document.getElementById("nav-admin").classList.remove("active");
   if (state.current) renderNavEquipes();
 }
 
 document.getElementById("nav-admin").addEventListener("click", () => {
-  document.getElementById("board").classList.add("hidden");
+  esconderQuadro();
   document.getElementById("filtro-usuario-bar")?.classList.add("hidden");
   document.getElementById("concluded-screen").classList.remove("visible");
   document.getElementById("admin-screen").classList.add("visible");
@@ -1434,6 +1446,13 @@ function openDetail(id) {
   // isso fazia os campos abrirem sempre no tamanho mínimo, ignorando o
   // texto já salvo (que só aparecia no tamanho certo depois de digitar).
   modalDetail.classList.remove("hidden");
+
+  if (detalheTarefaId !== id) {
+    document.getElementById("detail-comentario").value = "";
+    document.getElementById("detail-atividade").innerHTML = "";
+  }
+  detalheTarefaId = id;
+  carregarAtividade(id);
 
   document.getElementById("detail-title").textContent    = t.nome;
   document.getElementById("detail-subtitle").textContent = `Criado em ${formatDate(t.criadoEm)}`;
@@ -2090,6 +2109,377 @@ document.getElementById("btn-close-colunas").addEventListener("click", closeColu
 document.getElementById("btn-fechar-colunas").addEventListener("click", closeColunasModal);
 document.getElementById("modal-colunas-overlay").addEventListener("click", e => {
   if (e.target === document.getElementById("modal-colunas-overlay")) closeColunasModal();
+});
+
+// ── Prazo e ordenação ─────────────────────────────────────
+// "atrasada" (prazo já passou) ou "hoje" (vence hoje); diárias e concluídas
+// não entram nessa conta.
+function situacaoPrazo(t) {
+  if (!t.dataPrazo || t.concluida || t.prazo === "diaria") return null;
+  const prazo = t.dataPrazo.slice(0, 10), hoje = todayStr();
+  if (prazo < hoje) return "atrasada";
+  if (prazo === hoje) return "hoje";
+  return null;
+}
+
+function ordenarTarefas(lista) {
+  const peso = { alta: 0, media: 1, baixa: 2 };
+  const arr = [...lista];
+  if (state.ordenacao === "prazo") {
+    arr.sort((a, b) => (a.dataPrazo || "9999").localeCompare(b.dataPrazo || "9999"));
+  } else if (state.ordenacao === "urgencia") {
+    arr.sort((a, b) => (peso[a.urgencia] ?? 1) - (peso[b.urgencia] ?? 1)
+      || (a.dataPrazo || "9999").localeCompare(b.dataPrazo || "9999"));
+  }
+  // Diárias já feitas hoje sempre no fim (sort estável mantém o resto).
+  arr.sort((a, b) => (isDiariaFeitaHoje(a) ? 1 : 0) - (isDiariaFeitaHoje(b) ? 1 : 0));
+  return arr;
+}
+
+// Tarefas da equipe atual com o filtro de responsável aplicado.
+function tarefasVisiveis() {
+  const daEquipe = tarefasDaEquipeAtual();
+  return state.filtroUsuario !== null
+    ? daEquipe.filter(t => t.responsavel === state.filtroUsuario)
+    : daEquipe;
+}
+
+function tarefasDaColuna(lista, col) {
+  return lista.filter(t => colunaDaTarefa(t)?.id === col.id && (col.finaliza || !t.concluida));
+}
+
+function salvarPreferencia(chave, valor) {
+  try { localStorage.setItem(chave, valor); } catch (e) {}
+}
+
+function lerPreferencia(chave, padrao) {
+  try { return localStorage.getItem(chave) || padrao; } catch (e) { return padrao; }
+}
+
+// ── Quadro x Tabela ───────────────────────────────────────
+function areaPrincipal() {
+  return document.getElementById(state.visao === "tabela" ? "tabela-view" : "board");
+}
+
+function quadroVisivel() {
+  return !document.getElementById("board").classList.contains("hidden")
+    || !document.getElementById("tabela-view").classList.contains("hidden");
+}
+
+function mostrarQuadro() {
+  document.getElementById("board").classList.toggle("hidden", state.visao === "tabela");
+  document.getElementById("tabela-view").classList.toggle("hidden", state.visao !== "tabela");
+}
+
+function esconderQuadro() {
+  document.getElementById("board").classList.add("hidden");
+  document.getElementById("tabela-view").classList.add("hidden");
+}
+
+function trocarVisao(visao) {
+  state.visao = visao;
+  salvarPreferencia("visao", visao);
+  mostrarQuadro();
+  renderFiltroUsuarios();
+  renderBoard();
+}
+
+// Controles à direita da barra de filtros (visão e ordenação).
+function controlesDaBarra() {
+  const wrap = document.createElement("div");
+  wrap.className = "filtro-direita";
+  wrap.innerHTML = `
+    <select class="ordenacao-sel" title="Ordenar">
+      <option value="criacao">Ordem de criação</option>
+      <option value="prazo">Por prazo</option>
+      <option value="urgencia">Por urgência</option>
+    </select>
+    <div class="visao-toggle">
+      <button type="button" data-visao="quadro">Quadro</button>
+      <button type="button" data-visao="tabela">Tabela</button>
+    </div>`;
+  const sel = wrap.querySelector("select");
+  sel.value = state.ordenacao;
+  sel.onchange = () => {
+    state.ordenacao = sel.value;
+    salvarPreferencia("ordenacao", sel.value);
+    sel.blur();
+    renderBoard();
+  };
+  wrap.querySelectorAll(".visao-toggle button").forEach(b => {
+    b.classList.toggle("active", b.dataset.visao === state.visao);
+    b.onclick = () => trocarVisao(b.dataset.visao);
+  });
+  return wrap;
+}
+
+// ── Visão em tabela ───────────────────────────────────────
+// Uma tabela por coluna do quadro (como os grupos do Monday), com os campos
+// editáveis direto na linha. Cada alteração grava só o campo mexido.
+async function salvarCampo(t, campos) {
+  const anterior = { ...t };
+  Object.assign(t, campos);
+  try {
+    Object.assign(t, await api.patchTarefa(t.id, campos));
+  } catch (err) {
+    Object.assign(t, anterior);
+    toast(err.message, true);
+  }
+  renderBoard();
+}
+
+const ICONE_ABRIR = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>`;
+const ICONE_LIXEIRA = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>`;
+const ICONE_COMENTARIO = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`;
+
+function opcoesHTML(pares, atual) {
+  return pares.map(([v, rotulo]) =>
+    `<option value="${v}" ${String(v) === String(atual ?? "") ? "selected" : ""}>${rotulo}</option>`
+  ).join("");
+}
+
+function renderTabela() {
+  const wrap = document.getElementById("tabela-view");
+  wrap.innerHTML = "";
+  const eq = equipeAtual();
+  if (!eq) return;
+
+  const visiveis = tarefasVisiveis();
+  const membros  = membrosDaEquipe(eq.id);
+
+  eq.colunas.forEach(col => {
+    const tasks = ordenarTarefas(tarefasDaColuna(visiveis, col));
+    const grupo = document.createElement("div");
+    grupo.className = "tabela-grupo";
+    grupo.style.setProperty("--cor-grupo", col.cor);
+    grupo.innerHTML = `
+      <div class="tabela-grupo-titulo">
+        <div class="col-dot"></div><span class="tabela-grupo-nome"></span>
+        <span class="col-count">${tasks.length}</span>
+      </div>
+      <table>
+        <colgroup>
+          <col style="width:30%"><col style="width:15%"><col style="width:12%">
+          <col style="width:10%"><col style="width:12%"><col style="width:6%">
+          <col style="width:10%"><col style="width:5%">
+        </colgroup>
+        <thead><tr>
+          <th>Tarefa</th><th>Responsável</th><th>Status</th><th>Urgência</th>
+          <th>Prazo</th><th>Etapas</th><th>Coluna</th><th></th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>`;
+    grupo.querySelector(".col-dot").style.background = col.cor;
+    grupo.querySelector(".tabela-grupo-nome").textContent = col.nome;
+    const tbody = grupo.querySelector("tbody");
+
+    tasks.forEach(t => {
+      const tr = document.createElement("tr");
+      const feita = isDiariaFeitaHoje(t);
+      const etapasFeitas = t.etapas.filter(e => e.concluida).length;
+      const sit = situacaoPrazo(t);
+      tr.innerHTML = `
+        <td><div class="tabela-nome-cell">
+          ${t.prazo === "diaria" ? `<button class="diaria-checkbox ${feita ? "checked" : ""}" title="${feita ? "Desmarcar" : "Marcar como feita hoje"}">
+            ${feita ? `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>` : ""}</button>` : ""}
+          <input type="text" class="campo-nome" />
+          ${t.comentarios ? `<span class="card-comentarios" title="Comentários">${ICONE_COMENTARIO}${t.comentarios}</span>` : ""}
+        </div></td>
+        <td><select class="campo-resp">${opcoesHTML([["", "Sem responsável"], ...membros.map(u => [u.id, u.nome])], t.responsavel)}</select></td>
+        <td>${t.concluida
+          ? `<span class="tabela-concluida">Concluída</span>`
+          : `<select class="campo-status">${opcoesHTML([["pendente", "Pendente"], ["em andamento", "Em andamento"]], t.status)}</select>`}</td>
+        <td><select class="campo-urg">${opcoesHTML([["alta", "Alta"], ["media", "Média"], ["baixa", "Baixa"]], t.urgencia)}</select></td>
+        <td><input type="date" class="campo-prazo ${sit || ""}" value="${t.dataPrazo || ""}" title="${sit === "atrasada" ? "Atrasada" : sit === "hoje" ? "Vence hoje" : ""}" /></td>
+        <td class="tabela-etapas">${t.etapas.length ? `${etapasFeitas}/${t.etapas.length}` : "—"}</td>
+        <td><select class="campo-coluna">${opcoesHTML(eq.colunas.map(c => [c.id, c.nome]), col.id)}</select></td>
+        <td><div class="tabela-acoes">
+          <button class="btn-abrir" title="Abrir detalhes">${ICONE_ABRIR}</button>
+          <button class="btn-excluir danger" title="Excluir tarefa">${ICONE_LIXEIRA}</button>
+        </div></td>`;
+
+      const inputNome = tr.querySelector(".campo-nome");
+      inputNome.value = t.nome;
+      inputNome.addEventListener("keydown", e => {
+        if (e.key === "Enter") inputNome.blur();
+        if (e.key === "Escape") { inputNome.value = t.nome; inputNome.blur(); }
+      });
+      inputNome.addEventListener("blur", () => {
+        const nome = inputNome.value.trim();
+        if (!nome) { inputNome.value = t.nome; return; }
+        if (nome !== t.nome) salvarCampo(t, { nome });
+      });
+
+      tr.querySelector(".diaria-checkbox")?.addEventListener("click", () =>
+        salvarCampo(t, { diariaFeitaEm: feita ? null : todayStr() })
+      );
+      tr.querySelector(".campo-resp").onchange = e =>
+        salvarCampo(t, { responsavel: e.target.value ? parseInt(e.target.value) : null });
+      tr.querySelector(".campo-status")?.addEventListener("change", e => salvarCampo(t, { status: e.target.value }));
+      tr.querySelector(".campo-urg").onchange = e => salvarCampo(t, { urgencia: e.target.value });
+      tr.querySelector(".campo-prazo").onchange = e => salvarCampo(t, { dataPrazo: e.target.value || null });
+      tr.querySelector(".campo-coluna").onchange = e => {
+        const destino = eq.colunas.find(c => c.id === parseInt(e.target.value));
+        if (destino) moverTarefa(t, destino);
+      };
+      tr.querySelector(".btn-abrir").onclick = () => openDetail(t.id);
+      tr.querySelector(".btn-excluir").onclick = () => excluirTarefa(t);
+      tbody.appendChild(tr);
+    });
+
+    if (!col.finaliza) {
+      const tr = document.createElement("tr");
+      tr.className = "tabela-add";
+      tr.innerHTML = `<td colspan="8"><input type="text" placeholder="+ Adicionar tarefa" /></td>`;
+      const input = tr.querySelector("input");
+      input.addEventListener("keydown", async e => {
+        if (e.key === "Escape") { input.value = ""; input.blur(); return; }
+        if (e.key !== "Enter") return;
+        const nome = input.value.trim();
+        if (!nome) return;
+        input.disabled = true;
+        try {
+          state.tarefas.push(await api.criarTarefa({
+            equipeId: eq.id, colunaId: col.id, nome,
+            prazo: "unica", urgencia: "media", status: "pendente",
+            etapas: [], criadoEm: new Date().toISOString(),
+          }));
+          renderBoard();
+          const grupos = [...document.querySelectorAll("#tabela-view .tabela-grupo")];
+          grupos[eq.colunas.indexOf(col)]?.querySelector(".tabela-add input")?.focus();
+        } catch (err) {
+          input.disabled = false;
+          toast(err.message, true);
+        }
+      });
+      tbody.appendChild(tr);
+    }
+
+    wrap.appendChild(grupo);
+  });
+}
+
+async function excluirTarefa(t) {
+  const ok = await showConfirm(`Excluir a tarefa "${t.nome}" permanentemente? Essa ação não pode ser desfeita.`);
+  if (!ok) return;
+  try {
+    await api.deletarTarefa(t.id);
+    state.tarefas = state.tarefas.filter(x => x.id !== t.id);
+    renderBoard();
+    if (document.getElementById("concluded-screen").classList.contains("visible")) renderConcluded();
+    toast("Tarefa excluída.");
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
+// ── Atividade: comentários e histórico ────────────────────
+let detalheTarefaId = null;
+let atividadeTimer  = null;
+
+function tempoRelativo(iso) {
+  const d = new Date(iso);
+  const min = Math.round((Date.now() - d.getTime()) / 60000);
+  if (min < 1)  return "agora";
+  if (min < 60) return `há ${min} min`;
+  const h = Math.round(min / 60);
+  if (h < 24 && todayStr(d) === todayStr()) return `há ${h} h`;
+  return d.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
+async function carregarAtividade(tarefaId) {
+  const list = document.getElementById("detail-atividade");
+  let itens;
+  try {
+    itens = await api.getAtividade(tarefaId);
+  } catch (err) {
+    if (detalheTarefaId === tarefaId) list.innerHTML = `<div class="atividade-vazia">Não foi possível carregar a atividade.</div>`;
+    return;
+  }
+  if (detalheTarefaId !== tarefaId) return;
+
+  const t = state.tarefas.find(x => x.id === tarefaId);
+  if (t) t.comentarios = itens.filter(i => i.tipo === "comentario").length;
+
+  list.innerHTML = "";
+  if (itens.length === 0) {
+    list.innerHTML = `<div class="atividade-vazia">Nenhuma atividade ainda.</div>`;
+    return;
+  }
+  itens.forEach(item => {
+    const autor = state.users.find(u => u.id === item.usuarioId);
+    const el = document.createElement("div");
+    el.className = "atividade-item";
+    el.innerHTML = `
+      ${avatarHTML(autor, "sm")}
+      <div class="atividade-corpo">
+        <strong></strong>
+        <span class="${item.tipo === "historico" ? "atividade-historico" : ""}"></span>
+        <span class="atividade-quando"></span>
+      </div>`;
+    el.querySelector("strong").textContent = autor ? autor.nome : "Usuário removido";
+    el.querySelector(".atividade-quando").textContent = tempoRelativo(item.criadoEm);
+    const corpo = el.querySelector(".atividade-corpo");
+
+    if (item.tipo === "historico") {
+      el.querySelector(".atividade-historico").textContent = item.texto;
+    } else {
+      el.querySelector(".atividade-corpo > span:not(.atividade-quando)").textContent = "comentou";
+      if (item.usuarioId === state.current.id || state.current.isAdmin) {
+        const apagar = document.createElement("button");
+        apagar.className = "atividade-apagar";
+        apagar.textContent = "Apagar";
+        apagar.onclick = async () => {
+          const ok = await showConfirm("Apagar este comentário?", { title: "Apagar comentário", confirmLabel: "Apagar" });
+          if (!ok) return;
+          try {
+            await api.apagarComentario(item.id);
+            carregarAtividade(tarefaId);
+            renderBoard();
+          } catch (err) {
+            toast(err.message, true);
+          }
+        };
+        corpo.appendChild(apagar);
+      }
+      const texto = document.createElement("div");
+      texto.className = "atividade-comentario-texto";
+      texto.textContent = item.texto;
+      corpo.appendChild(texto);
+    }
+    list.appendChild(el);
+  });
+}
+
+// Depois de qualquer alteração na tarefa aberta, recarrega a atividade
+// (com um pequeno atraso para juntar várias alterações seguidas).
+function aoAlterarTarefa(tarefaId) {
+  if (detalheTarefaId !== tarefaId || modalDetail.classList.contains("hidden")) return;
+  clearTimeout(atividadeTimer);
+  atividadeTimer = setTimeout(() => carregarAtividade(tarefaId), 400);
+}
+
+async function enviarComentario() {
+  const input = document.getElementById("detail-comentario");
+  const texto = input.value.trim();
+  const tarefaId = detalheTarefaId;
+  if (!texto || !tarefaId) return;
+  const btn = document.getElementById("btn-comentar");
+  btn.disabled = true;
+  try {
+    await api.comentar(tarefaId, texto);
+    input.value = "";
+    await carregarAtividade(tarefaId);
+    renderBoard();
+  } catch (err) {
+    toast(err.message, true);
+  }
+  btn.disabled = false;
+}
+
+document.getElementById("btn-comentar").addEventListener("click", enviarComentario);
+document.getElementById("detail-comentario").addEventListener("keydown", e => {
+  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); enviarComentario(); }
 });
 
 // ── Helpers ───────────────────────────────────────────────

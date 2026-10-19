@@ -1468,3 +1468,87 @@ select {
 .coluna-edit-row .btn-ordem:hover:not(:disabled) { color: var(--white); }
 .coluna-edit-row .btn-ordem:disabled { opacity: .25; cursor: default; }
 .colunas-dica { margin-top: 12px; font-size: 12px; color: var(--muted2); line-height: 1.5; }
+
+/* ── Prazo: atrasadas e vencendo hoje ─────────────────────── */
+.task-card.card-atrasada { border-left: 3px solid var(--red); }
+.card-prazo.atrasada { color: var(--red); font-weight: 600; }
+.card-prazo.hoje { color: #f59e0b; font-weight: 600; }
+.card-comentarios {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-size: 11px; color: var(--muted); margin-right: 8px;
+}
+
+/* ── Barra de filtros: visão e ordenação ──────────────────── */
+.filtro-direita { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.visao-toggle { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
+.visao-toggle button {
+  background: none; border: none; color: var(--muted); font-size: 12px;
+  padding: 5px 10px; cursor: pointer;
+}
+.visao-toggle button + button { border-left: 1px solid var(--border); }
+.visao-toggle button.active { background: var(--green-subtle); color: var(--green); }
+.ordenacao-sel { width: auto; padding: 4px 8px; font-size: 12px; }
+
+/* ── Visão em tabela ──────────────────────────────────────── */
+#tabela-view { flex: 1; overflow: auto; padding: 16px 24px 32px; }
+.tabela-grupo { margin-bottom: 22px; }
+.tabela-grupo-titulo {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 13px; font-weight: 700; margin-bottom: 6px;
+}
+.tabela-grupo-titulo .col-count { font-weight: 500; }
+.tabela-grupo table { width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed; }
+.tabela-grupo th {
+  text-align: left; font-size: 10px; font-weight: 700; letter-spacing: .6px;
+  text-transform: uppercase; color: var(--muted2); padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.tabela-grupo td { padding: 3px 8px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.tabela-grupo tbody tr { border-left: 3px solid var(--cor-grupo, var(--border2)); }
+.tabela-grupo tbody tr:hover { background: var(--surface2); }
+.tabela-grupo td input[type="text"],
+.tabela-grupo td input[type="date"],
+.tabela-grupo td select {
+  width: 100%; padding: 4px 6px; font-size: 12px;
+  background: transparent; border-color: transparent;
+}
+.tabela-grupo td input:hover, .tabela-grupo td select:hover { border-color: var(--border2); }
+.tabela-grupo td input:focus, .tabela-grupo td select:focus { background: var(--surface2); border-color: var(--green-dim); }
+.tabela-grupo td input.atrasada { color: var(--red); font-weight: 600; }
+.tabela-grupo td input.hoje { color: #f59e0b; font-weight: 600; }
+.tabela-nome-cell { display: flex; align-items: center; gap: 6px; }
+.tabela-nome-cell .diaria-checkbox { flex-shrink: 0; }
+.tabela-acoes { display: flex; gap: 2px; justify-content: flex-end; }
+.tabela-acoes button {
+  background: none; border: none; color: var(--muted); cursor: pointer;
+  padding: 4px; border-radius: 4px; display: inline-flex;
+}
+.tabela-acoes button:hover { color: var(--white); background: var(--surface3); }
+.tabela-acoes button.danger:hover { color: var(--red); }
+.tabela-etapas { color: var(--muted); white-space: nowrap; }
+.tabela-concluida { color: var(--muted); font-size: 11px; }
+.tabela-add td { border-bottom: none; }
+.tabela-add input { border-style: dashed !important; border-color: var(--border) !important; }
+
+/* ── Atividade (comentários e histórico) ──────────────────── */
+.detail-section-atividade { flex: 1; min-height: 180px; display: flex; flex-direction: column; }
+.comentario-add { display: flex; gap: 8px; align-items: flex-end; margin-bottom: 10px; }
+.comentario-add textarea { flex: 1; min-height: 38px; height: 38px; resize: none; font-size: 12px; }
+.atividade-list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding-right: 4px; }
+.atividade-item { display: flex; gap: 8px; font-size: 12px; line-height: 1.45; }
+.atividade-item .avatar { flex-shrink: 0; }
+.atividade-corpo { flex: 1; min-width: 0; }
+.atividade-corpo strong { font-weight: 600; }
+.atividade-quando { color: var(--muted2); font-size: 11px; margin-left: 4px; }
+.atividade-historico { color: var(--muted); }
+.atividade-comentario-texto {
+  margin-top: 3px; padding: 7px 10px; background: var(--surface2);
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  white-space: pre-wrap; word-break: break-word; color: var(--white);
+}
+.atividade-apagar {
+  background: none; border: none; color: var(--muted2); cursor: pointer;
+  font-size: 11px; padding: 0; margin-left: 6px;
+}
+.atividade-apagar:hover { color: var(--red); }
+.atividade-vazia { color: var(--muted2); font-size: 12px; }
