@@ -3810,7 +3810,7 @@ document.querySelectorAll("#minhas-modo button").forEach(b => b.addEventListener
 // aparência, perfil, equipes (membros/colunas) e administração.
 const CORES_DESTAQUE = [
   ["green", "#22c55e", "Verde"], ["blue", "#3b82f6", "Azul"], ["purple", "#8b5cf6", "Roxo"],
-  ["orange", "#f97316", "Laranja"], ["pink", "#ec4899", "Rosa"],
+  ["orange", "#f97316", "Laranja"], ["pink", "#ec4899", "Rosa"], ["red", "#dc2626", "Vermelho"],
 ];
 
 function configVisivel() {

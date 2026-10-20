@@ -2207,3 +2207,12 @@ button.dash-kpi { font: inherit; color: inherit; text-align: left; }
 #app.sidebar-recolhida .nav-section-row,
 #app.sidebar-recolhida #nav-equipes { display: none; }
 #app.sidebar-recolhida .nav-section-label:not(.nav-section-row) { margin-top: 4px; }
+
+/* Destaque vermelho (tom da MG). O escuro usa um pouco mais claro para ler bem no fundo escuro. */
+:root[data-accent="red"] {
+  --green:        #ef4444;
+  --green-dim:    #dc2626;
+  --green-glow:   rgba(239,68,68,.18);
+  --green-subtle: #ef444414;
+}
+:root[data-tema="claro"][data-accent="red"] { --green: #c81e1e; --green-dim: #a51a1a; --green-glow: rgba(200,30,30,.16); --green-subtle: #c81e1e14; }
