@@ -236,6 +236,7 @@ function usuarioOcupado() {
   if (salvamentosEmAndamento > 0) return true;
   if (document.querySelector(".modal-overlay:not(.hidden):not(#loading-overlay)")) return true;
   if (document.querySelector(".task-card.dragging")) return true;
+  if (document.getElementById("coluna-menu")) return true;
   if (document.getElementById("admin-screen").classList.contains("visible")) return true;
   const ativo = document.activeElement;
   return !!ativo && ["INPUT", "TEXTAREA", "SELECT"].includes(ativo.tagName);
@@ -747,7 +748,7 @@ function renderBoard() {
   const colunas = eq ? eq.colunas : [];
   const gestor = souGestorDaEquipe(eq);
   board.style.setProperty("--ncols", Math.max(colunas.length, 1));
-  board.classList.remove("com-coluna-nova");
+  board.classList.toggle("com-coluna-nova", gestor);
 
   const tarefasFiltradas = tarefasVisiveis();
 
@@ -765,7 +766,12 @@ function renderBoard() {
           <div class="col-dot"></div>
           <span class="column-nome"></span>
         </div>
-        <span class="col-count">${count}</span>
+        <div class="column-header-direita">
+          <span class="col-count">${count}</span>
+          ${gestor ? `<button type="button" class="coluna-menu-btn" title="Opções da coluna">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
+          </button>` : ""}
+        </div>
       </div>
       <div class="column-body"></div>`;
     col_el.querySelector(".col-dot").style.background = col.cor;
@@ -775,6 +781,10 @@ function renderBoard() {
     // Mover a coluna: arrastar pelo cabeçalho (só quem administra o quadro).
     if (gestor) {
       const header = col_el.querySelector(".column-header");
+      const btnMenu = header.querySelector(".coluna-menu-btn");
+      btnMenu.addEventListener("click", e => { e.stopPropagation(); abrirMenuColuna(btnMenu, col_el, eq, col); });
+      btnMenu.addEventListener("mousedown", e => e.stopPropagation());
+      header.querySelector(".column-nome").addEventListener("dblclick", () => renomearColunaNoQuadro(col_el, eq, col));
       header.draggable = true;
       header.title = "Arraste para mudar a coluna de lugar";
       header.addEventListener("dragstart", e => {
@@ -873,6 +883,7 @@ function renderBoard() {
     }
   });
 
+  if (gestor) board.appendChild(novaColunaNoQuadro(eq));
   renderNavEquipes();
 }
 
@@ -2241,6 +2252,144 @@ function ladoDoMouse(e, el, horizontal) {
 
 function limparMarcasDeSoltar(seletor) {
   document.querySelectorAll(seletor).forEach(el => el.classList.remove("soltar-antes", "soltar-depois"));
+}
+
+// ── Colunas editadas direto no quadro ─────────────────────
+// Menu "⋯" no título (renomear, cor, conclui, excluir), dois cliques no
+// nome para renomear e "+ Nova coluna" no fim do quadro.
+const CORES_COLUNA = ["#64748b", "#3b82f6", "#8b5cf6", "#ec4899", "#ef4444", "#f59e0b", "#22c55e", "#14b8a6"];
+
+async function salvarColuna(eq, coluna, mudancas) {
+  const dados = { nome: coluna.nome, cor: coluna.cor, finaliza: coluna.finaliza, ...mudancas };
+  try {
+    substituirEquipe(await api.atualizarColuna(coluna.id, dados));
+  } catch (err) {
+    toast(err.message, true);
+  }
+  renderBoard();
+}
+
+function fecharMenuColuna() {
+  document.getElementById("coluna-menu")?.remove();
+}
+
+function renomearColunaNoQuadro(col_el, eq, coluna) {
+  fecharMenuColuna();
+  const nome = col_el.querySelector(".column-nome");
+  col_el.querySelector(".column-header").draggable = false;   // senão o mouse não seleciona o texto
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "coluna-nome-input";
+  input.value = coluna.nome;
+  nome.replaceWith(input);
+  input.focus();
+  input.select();
+  let feito = false;
+  const concluir = salvar => {
+    if (feito) return;
+    feito = true;
+    const novo = input.value.trim();
+    if (salvar && novo && novo !== coluna.nome) salvarColuna(eq, coluna, { nome: novo });
+    else renderBoard();
+  };
+  input.addEventListener("keydown", e => {
+    if (e.key === "Enter") { e.preventDefault(); concluir(true); }
+    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); concluir(false); }
+  });
+  input.addEventListener("blur", () => concluir(true));
+  input.addEventListener("mousedown", e => e.stopPropagation());
+}
+
+function abrirMenuColuna(botao, col_el, eq, coluna) {
+  const jaAberto = document.getElementById("coluna-menu")?.dataset.coluna === String(coluna.id);
+  fecharMenuColuna();
+  if (jaAberto) return;
+
+  const menu = document.createElement("div");
+  menu.id = "coluna-menu";
+  menu.className = "coluna-menu";
+  menu.dataset.coluna = coluna.id;
+  menu.innerHTML = `
+    <button type="button" data-acao="renomear">Renomear</button>
+    <div class="coluna-menu-secao">Cor</div>
+    <div class="coluna-menu-cores">
+      ${CORES_COLUNA.map(c => `<button type="button" class="coluna-cor${c.toLowerCase() === (coluna.cor || "").toLowerCase() ? " selected" : ""}" data-cor="${c}" style="background:${c}" title="${c}"></button>`).join("")}
+      <label class="coluna-cor coluna-cor-livre" title="Outra cor"><input type="color" value="${escapeHTML(coluna.cor || "#64748b")}" />+</label>
+    </div>
+    <label class="coluna-menu-check"><input type="checkbox" ${coluna.finaliza ? "checked" : ""} /> Conclui as tarefas</label>
+    <div class="coluna-menu-dica">Arrastar um card para esta coluna marca a tarefa como concluída.</div>
+    <button type="button" class="perigo" data-acao="excluir">Excluir coluna</button>`;
+  document.body.appendChild(menu);
+
+  const r = botao.getBoundingClientRect();
+  const largura = menu.offsetWidth;
+  menu.style.top  = `${r.bottom + 6}px`;
+  menu.style.left = `${Math.max(8, Math.min(r.right - largura, window.innerWidth - largura - 8))}px`;
+
+  menu.addEventListener("mousedown", e => e.stopPropagation());
+  menu.querySelector('[data-acao="renomear"]').onclick = () => renomearColunaNoQuadro(col_el, eq, coluna);
+  menu.querySelectorAll(".coluna-cor[data-cor]").forEach(b => b.onclick = () => {
+    fecharMenuColuna();
+    salvarColuna(eq, coluna, { cor: b.dataset.cor });
+  });
+  menu.querySelector(".coluna-cor-livre input").onchange = e => {
+    fecharMenuColuna();
+    salvarColuna(eq, coluna, { cor: e.target.value });
+  };
+  menu.querySelector(".coluna-menu-check input").onchange = e => {
+    fecharMenuColuna();
+    salvarColuna(eq, coluna, { finaliza: e.target.checked });
+  };
+  menu.querySelector('[data-acao="excluir"]').onclick = async () => {
+    fecharMenuColuna();
+    const ok = await showConfirm(`Excluir a coluna "${coluna.nome}"?`, { title: "Excluir coluna", confirmLabel: "Excluir" });
+    if (!ok) return;
+    try {
+      substituirEquipe(await api.deletarColuna(coluna.id));
+      renderBoard();
+    } catch (err) {
+      toast(err.message, true);
+    }
+  };
+}
+
+document.addEventListener("mousedown", e => {
+  if (!e.target.closest("#coluna-menu, .coluna-menu-btn")) fecharMenuColuna();
+});
+document.addEventListener("keydown", e => { if (e.key === "Escape") fecharMenuColuna(); });
+window.addEventListener("resize", fecharMenuColuna);
+
+function novaColunaNoQuadro(eq) {
+  const el = document.createElement("div");
+  el.className = "column-nova";
+  el.innerHTML = `<button type="button">+ Nova coluna</button>`;
+  const botao = el.querySelector("button");
+  botao.onclick = () => {
+    el.innerHTML = `<input type="text" class="coluna-nome-input" placeholder="Nome da coluna" />`;
+    const input = el.querySelector("input");
+    input.focus();
+    let feito = false;
+    const concluir = async salvar => {
+      if (feito) return;
+      feito = true;
+      const nome = input.value.trim();
+      if (!salvar || !nome) { renderBoard(); return; }
+      try {
+        substituirEquipe(await api.criarColuna(eq.id, { nome, cor: CORES_COLUNA[eq.colunas.length % CORES_COLUNA.length], finaliza: false }));
+      } catch (err) {
+        toast(err.message, true);
+      }
+      renderBoard();
+      // já deixa pronto para criar a próxima
+      document.querySelector("#board .column-nova button")?.click();
+    };
+    input.addEventListener("keydown", e => {
+      if (e.key === "Enter") { e.preventDefault(); concluir(true); }
+      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); concluir(false); }
+    });
+    input.addEventListener("blur", () => concluir(true));
+  };
+  return el;
 }
 
 // ── Modal: Colunas do quadro ──────────────────────────────
@@ -3679,7 +3828,7 @@ function renderConfig() {
   body.appendChild(perfil);
 
   // ── Equipes e grupos
-  const equipes = cartaoConfig("Equipes e grupos", "Membros e colunas de cada quadro. Só quem administra a equipe pode alterar.");
+  const equipes = cartaoConfig("Equipes e grupos", "Membros de cada equipe. As colunas são ajustadas direto no quadro.");
   const ce = equipes.querySelector(".config-conteudo");
   const novo = document.createElement("button");
   novo.type = "button";
@@ -3703,7 +3852,6 @@ function renderConfig() {
       </div>
       <div class="config-equipe-acoes">
         <button type="button" class="btn btn-ghost btn-sm" data-acao="membros">${gestor ? "Membros" : "Ver membros"}</button>
-        ${gestor ? `<button type="button" class="btn btn-ghost btn-sm" data-acao="colunas">Colunas</button>` : ""}
       </div>`;
     linha.querySelector("strong").textContent = eq.nome;
     const usarEquipe = () => {
@@ -3711,8 +3859,6 @@ function renderConfig() {
       salvarPreferencia("equipeAtual", String(eq.id));
     };
     linha.querySelector('[data-acao="membros"]').onclick = () => { usarEquipe(); openEquipeModal(); };
-    const btnColunas = linha.querySelector('[data-acao="colunas"]');
-    if (btnColunas) btnColunas.onclick = () => { usarEquipe(); openColunasModal(); };
     ce.appendChild(linha);
   });
   body.appendChild(equipes);
