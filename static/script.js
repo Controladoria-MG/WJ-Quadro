@@ -133,7 +133,12 @@ function renderNavEquipes() {
   const nav = document.getElementById("nav-equipes");
   nav.innerHTML = "";
   const adminVisivel = document.getElementById("admin-screen").classList.contains("visible")
-    || document.getElementById("dashboard-screen").classList.contains("visible");
+    || document.getElementById("dashboard-screen").classList.contains("visible")
+    || document.getElementById("minhas-screen").classList.contains("visible");
+  if (state.current) {
+    const n = state.tarefas.filter(t => t.responsavel === state.current.id && !t.concluida && t.prazo !== "diaria").length;
+    document.getElementById("nav-minhas-count").textContent = n || "";
+  }
 
   if (state.equipes.length === 0) {
     nav.innerHTML = `<div class="nav-equipe-vazio">Você ainda não faz parte de nenhuma equipe.</div>`;
@@ -162,10 +167,13 @@ function renderNavEquipes() {
 
   const eq = equipeAtual();
   const noDashboard = document.getElementById("dashboard-screen").classList.contains("visible");
+  const emMinhas    = document.getElementById("minhas-screen").classList.contains("visible");
   document.getElementById("topbar-titulo").textContent =
-    noDashboard ? "Dashboard" : eq ? `Tarefas · ${eq.nome}` : "Tarefas";
+    noDashboard ? "Dashboard" : emMinhas ? "Minhas tarefas" : eq ? `Tarefas · ${eq.nome}` : "Tarefas";
   document.getElementById("topbar-subtitulo").textContent =
-    noDashboard ? "Indicadores das suas equipes e grupos" : "Crie e acompanhe tarefas internas da equipe";
+    noDashboard ? "Indicadores das suas equipes e grupos"
+    : emMinhas ? "O que está com você em todas as equipes e grupos"
+    : "Crie e acompanhe tarefas internas da equipe";
   document.getElementById("btn-equipe-membros").classList.toggle("hidden", !eq);
   document.getElementById("btn-colunas").classList.toggle("hidden", !souGestorDaEquipe(eq));
   document.getElementById("btn-new-task").disabled = !eq;
@@ -232,6 +240,7 @@ async function atualizarEmSegundoPlano() {
   renderBoard();
   if (document.getElementById("concluded-screen").classList.contains("visible")) renderConcluded();
   if (dashboardVisivel()) renderDashboard();
+  if (minhasVisivel()) renderMinhas();
 }
 
 setInterval(atualizarEmSegundoPlano, INTERVALO_ATUALIZACAO);
@@ -660,8 +669,8 @@ async function moverTarefa(t, coluna) {
 }
 
 function renderBoard() {
-  if (state.visao === "tabela") {
-    renderTabela();
+  if (state.visao === "tabela" || state.visao === "calendario") {
+    state.visao === "tabela" ? renderTabela() : renderCalendario();
     renderNavEquipes();
     return;
   }
@@ -958,6 +967,7 @@ function buildCard(t) {
 // ── View: Concluídas ──────────────────────────────────────
 document.getElementById("btn-concluded").addEventListener("click", () => {
   esconderQuadro();
+  fecharMinhas();
   document.getElementById("dashboard-screen").classList.remove("visible");
   document.getElementById("nav-dashboard").classList.remove("active");
   document.getElementById("main").classList.remove("modo-dashboard");
@@ -1068,6 +1078,7 @@ function renderFiltrosConcluidas() {
 
 // ── View: navegação entre Board / Gerenciador de Base ─────
 function showBoardView() {
+  fecharMinhas();
   document.getElementById("admin-screen").classList.remove("visible");
   document.getElementById("dashboard-screen").classList.remove("visible");
   document.getElementById("nav-dashboard").classList.remove("active");
@@ -1081,6 +1092,7 @@ function showBoardView() {
 
 document.getElementById("nav-admin").addEventListener("click", () => {
   esconderQuadro();
+  fecharMinhas();
   document.getElementById("dashboard-screen").classList.remove("visible");
   document.getElementById("nav-dashboard").classList.remove("active");
   document.getElementById("main").classList.remove("modo-dashboard");
@@ -1900,6 +1912,7 @@ function startEditEtapa(t, etapa, item, id) {
 function closeDetail() {
   modalDetail.classList.add("hidden");
   if (dashboardVisivel()) renderDashboard();
+  if (minhasVisivel()) renderMinhas();
 }
 
 // ── Modal: Equipe (membros) ───────────────────────────────
@@ -2346,23 +2359,24 @@ function lerPreferencia(chave, padrao) {
 }
 
 // ── Quadro x Tabela ───────────────────────────────────────
+const AREAS_DA_VISAO = { quadro: "board", tabela: "tabela-view", calendario: "calendario-view" };
+
 function areaPrincipal() {
-  return document.getElementById(state.visao === "tabela" ? "tabela-view" : "board");
+  return document.getElementById(AREAS_DA_VISAO[state.visao] || "board");
 }
 
 function quadroVisivel() {
-  return !document.getElementById("board").classList.contains("hidden")
-    || !document.getElementById("tabela-view").classList.contains("hidden");
+  return Object.values(AREAS_DA_VISAO).some(id => !document.getElementById(id).classList.contains("hidden"));
 }
 
 function mostrarQuadro() {
-  document.getElementById("board").classList.toggle("hidden", state.visao === "tabela");
-  document.getElementById("tabela-view").classList.toggle("hidden", state.visao !== "tabela");
+  if (!AREAS_DA_VISAO[state.visao]) state.visao = "quadro";
+  Object.entries(AREAS_DA_VISAO).forEach(([visao, id]) =>
+    document.getElementById(id).classList.toggle("hidden", visao !== state.visao));
 }
 
 function esconderQuadro() {
-  document.getElementById("board").classList.add("hidden");
-  document.getElementById("tabela-view").classList.add("hidden");
+  Object.values(AREAS_DA_VISAO).forEach(id => document.getElementById(id).classList.add("hidden"));
 }
 
 function trocarVisao(visao) {
@@ -2386,8 +2400,10 @@ function controlesDaBarra() {
     <div class="visao-toggle">
       <button type="button" data-visao="quadro">Quadro</button>
       <button type="button" data-visao="tabela">Tabela</button>
+      <button type="button" data-visao="calendario">Calendário</button>
     </div>`;
   const sel = wrap.querySelector("select");
+  sel.classList.toggle("hidden", state.visao === "calendario");   // no calendário a ordem é pela data
   sel.value = state.ordenacao;
   sel.onchange = () => {
     state.ordenacao = sel.value;
@@ -2790,6 +2806,7 @@ function dashboardVisivel() {
 
 function abrirDashboard() {
   esconderQuadro();
+  fecharMinhas();
   document.getElementById("filtro-usuario-bar")?.classList.add("hidden");
   document.getElementById("concluded-screen").classList.remove("visible");
   document.getElementById("admin-screen").classList.remove("visible");
@@ -3155,6 +3172,288 @@ document.getElementById("dash-pessoa").addEventListener("change", e => {
 document.querySelectorAll("#dash-periodo button").forEach(b => b.addEventListener("click", () => {
   dash.periodo = Number(b.dataset.dias);
   renderDashboard();
+}));
+
+// ── Visão em calendário ───────────────────────────────────
+// Mês inteiro com as tarefas no dia do prazo (diárias ficam de fora).
+// Arrastar uma tarefa para outro dia muda o prazo; o "+" cria no dia.
+const cal = { ano: new Date().getFullYear(), mes: new Date().getMonth(), expandidos: new Set() };
+const TIPO_TAREFA_CAL = "application/x-tarefa-cal";
+const MESES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho",
+               "agosto", "setembro", "outubro", "novembro", "dezembro"];
+
+function ymd(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function mudarMesCalendario(delta) {
+  if (delta === 0) {
+    const h = new Date(todayStr() + "T12:00:00");
+    cal.ano = h.getFullYear(); cal.mes = h.getMonth();
+  } else {
+    const d = new Date(cal.ano, cal.mes + delta, 1);
+    cal.ano = d.getFullYear(); cal.mes = d.getMonth();
+  }
+  cal.expandidos.clear();
+  renderCalendario();
+}
+
+function renderCalendario() {
+  const wrap = document.getElementById("calendario-view");
+  wrap.innerHTML = "";
+  const eq = equipeAtual();
+  if (!eq) return;
+
+  const hoje = todayStr();
+  const peso = { alta: 0, media: 1, baixa: 2 };
+  const doQuadro = tarefasVisiveis().filter(t => t.prazo !== "diaria");
+  const porDia = new Map();
+  doQuadro.filter(t => t.dataPrazo).forEach(t => {
+    const d = t.dataPrazo.slice(0, 10);
+    if (!porDia.has(d)) porDia.set(d, []);
+    porDia.get(d).push(t);
+  });
+  porDia.forEach(lista => lista.sort((a, b) =>
+    (a.concluida ? 1 : 0) - (b.concluida ? 1 : 0) || (peso[a.urgencia] ?? 1) - (peso[b.urgencia] ?? 1)));
+  const semData = doQuadro.filter(t => !t.dataPrazo && !t.concluida).length;
+
+  const topo = document.createElement("div");
+  topo.className = "cal-topo";
+  topo.innerHTML = `
+    <div class="cal-nav">
+      <button type="button" class="btn btn-ghost btn-sm" data-delta="-1" title="Mês anterior">‹</button>
+      <button type="button" class="btn btn-ghost btn-sm" data-delta="0">Hoje</button>
+      <button type="button" class="btn btn-ghost btn-sm" data-delta="1" title="Próximo mês">›</button>
+    </div>
+    <h3 class="cal-titulo">${MESES[cal.mes][0].toUpperCase() + MESES[cal.mes].slice(1)} de ${cal.ano}</h3>
+    <span class="cal-semdata">${semData ? `${plural(semData, "tarefa em aberto", "tarefas em aberto")} sem data` : ""}</span>`;
+  topo.querySelectorAll("[data-delta]").forEach(b => b.onclick = () => mudarMesCalendario(Number(b.dataset.delta)));
+  wrap.appendChild(topo);
+
+  const grade = document.createElement("div");
+  grade.className = "cal-grade";
+  ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"].forEach(d => {
+    const el = document.createElement("div");
+    el.className = "cal-dia-semana";
+    el.textContent = d;
+    grade.appendChild(el);
+  });
+
+  const primeiro = new Date(cal.ano, cal.mes, 1);
+  const inicio = new Date(cal.ano, cal.mes, 1 - primeiro.getDay());
+  const diasNoMes = new Date(cal.ano, cal.mes + 1, 0).getDate();
+  const semanas = Math.ceil((primeiro.getDay() + diasNoMes) / 7);
+  const LIMITE = 3;
+
+  for (let i = 0; i < semanas * 7; i++) {
+    const data = new Date(inicio.getFullYear(), inicio.getMonth(), inicio.getDate() + i);
+    const chave = ymd(data);
+    const tarefas = porDia.get(chave) || [];
+    const expandido = cal.expandidos.has(chave);
+    const cel = document.createElement("div");
+    cel.className = "cal-dia"
+      + (data.getMonth() !== cal.mes ? " fora-do-mes" : "")
+      + (chave === hoje ? " hoje" : "")
+      + (data.getDay() === 0 || data.getDay() === 6 ? " fim-de-semana" : "");
+    cel.innerHTML = `
+      <div class="cal-dia-topo">
+        <span class="cal-num">${data.getDate()}</span>
+        <button type="button" class="cal-add" title="Nova tarefa neste dia">+</button>
+      </div>
+      <div class="cal-itens"></div>`;
+    const itens = cel.querySelector(".cal-itens");
+    (expandido ? tarefas : tarefas.slice(0, LIMITE)).forEach(t => itens.appendChild(chipCalendario(t, hoje)));
+    if (tarefas.length > LIMITE) {
+      const mais = document.createElement("button");
+      mais.type = "button";
+      mais.className = "cal-mais";
+      mais.textContent = expandido ? "mostrar menos" : `+${tarefas.length - LIMITE} mais`;
+      mais.onclick = () => { expandido ? cal.expandidos.delete(chave) : cal.expandidos.add(chave); renderCalendario(); };
+      itens.appendChild(mais);
+    }
+
+    cel.querySelector(".cal-add").onclick = () => {
+      openCreateModal();
+      document.getElementById("input-data-prazo").value = chave;
+    };
+    cel.addEventListener("dragover", e => {
+      if (!e.dataTransfer.types.includes(TIPO_TAREFA_CAL)) return;
+      e.preventDefault();
+      cel.classList.add("soltar-aqui");
+    });
+    cel.addEventListener("dragleave", e => {
+      if (!cel.contains(e.relatedTarget)) cel.classList.remove("soltar-aqui");
+    });
+    cel.addEventListener("drop", e => {
+      if (!e.dataTransfer.types.includes(TIPO_TAREFA_CAL)) return;
+      e.preventDefault();
+      cel.classList.remove("soltar-aqui");
+      const t = state.tarefas.find(x => x.id === Number(e.dataTransfer.getData(TIPO_TAREFA_CAL)));
+      if (t && t.dataPrazo?.slice(0, 10) !== chave) salvarCampo(t, { dataPrazo: chave });
+    });
+    grade.appendChild(cel);
+  }
+  wrap.appendChild(grade);
+}
+
+function chipCalendario(t, hoje) {
+  const chip = document.createElement("button");
+  chip.type = "button";
+  const atrasada = !t.concluida && t.dataPrazo.slice(0, 10) < hoje;
+  chip.className = "cal-chip" + (t.concluida ? " concluida" : "") + (atrasada ? " atrasada" : "");
+  chip.style.setProperty("--cor-chip", colunaDaTarefa(t)?.cor || "var(--border2)");
+  const resp = state.users.find(u => u.id === t.responsavel);
+  chip.title = `${t.nome}${resp ? ` · ${resp.nome}` : ""}${t.concluida ? " · concluída" : atrasada ? " · atrasada" : ""}`;
+  chip.innerHTML = `<span class="cal-chip-nome"></span>${resp ? `<span class="cal-chip-resp">${escapeHTML(resp.avatar || "")}</span>` : ""}`;
+  chip.querySelector(".cal-chip-nome").textContent = t.nome;
+  chip.draggable = !t.concluida;
+  chip.addEventListener("dragstart", e => {
+    e.dataTransfer.setData(TIPO_TAREFA_CAL, String(t.id));
+    e.dataTransfer.effectAllowed = "move";
+  });
+  chip.onclick = () => openDetail(t.id);
+  return chip;
+}
+
+// ── Minhas tarefas ────────────────────────────────────────
+// Tudo o que está comigo (ou que eu pedi a outras pessoas), de todas as
+// equipes, agrupado pela situação do prazo.
+const minhas = { modo: "atribuidas" };
+
+function minhasVisivel() {
+  return document.getElementById("minhas-screen").classList.contains("visible");
+}
+
+function fecharMinhas() {
+  document.getElementById("minhas-screen").classList.remove("visible");
+  document.getElementById("nav-minhas").classList.remove("active");
+  document.getElementById("main").classList.remove("modo-minhas");
+}
+
+function abrirMinhas() {
+  esconderQuadro();
+  document.getElementById("filtro-usuario-bar")?.classList.add("hidden");
+  document.getElementById("concluded-screen").classList.remove("visible");
+  document.getElementById("admin-screen").classList.remove("visible");
+  document.getElementById("nav-admin").classList.remove("active");
+  document.getElementById("dashboard-screen").classList.remove("visible");
+  document.getElementById("nav-dashboard").classList.remove("active");
+  document.getElementById("main").classList.remove("modo-dashboard");
+  document.getElementById("minhas-screen").classList.add("visible");
+  document.getElementById("nav-minhas").classList.add("active");
+  document.getElementById("main").classList.add("modo-minhas");
+  renderNavEquipes();
+  renderMinhas();
+}
+
+function minhasTarefas(modo) {
+  const eu = state.current.id;
+  return state.tarefas.filter(t => !t.concluida && (modo === "atribuidas"
+    ? t.responsavel === eu
+    : t.criadoPor === eu && t.responsavel !== eu));
+}
+
+function renderMinhas() {
+  const atribuidas = minhasTarefas("atribuidas");
+  const criadas    = minhasTarefas("criadas");
+  document.querySelectorAll("#minhas-modo button").forEach(b => {
+    b.classList.toggle("active", b.dataset.modo === minhas.modo);
+    const n = b.dataset.modo === "atribuidas" ? atribuidas.length : criadas.length;
+    b.textContent = `${b.dataset.modo === "atribuidas" ? "Atribuídas a mim" : "Que eu criei"} (${n})`;
+  });
+
+  const lista = minhas.modo === "atribuidas" ? atribuidas : criadas;
+  const hoje = todayStr();
+  const em7 = todayStr(new Date(Date.now() + 7 * 86400000));
+  const peso = { alta: 0, media: 1, baixa: 2 };
+  const grupos = [
+    ["Atrasadas",       t => t.dataPrazo && t.dataPrazo.slice(0, 10) < hoje, "atrasada"],
+    ["Hoje",            t => t.dataPrazo && t.dataPrazo.slice(0, 10) === hoje, "hoje"],
+    ["Próximos 7 dias", t => t.dataPrazo && t.dataPrazo.slice(0, 10) > hoje && t.dataPrazo.slice(0, 10) <= em7, ""],
+    ["Mais adiante",    t => t.dataPrazo && t.dataPrazo.slice(0, 10) > em7, ""],
+    ["Sem prazo",       t => !t.dataPrazo, ""],
+  ];
+
+  const body = document.getElementById("minhas-body");
+  body.innerHTML = "";
+
+  const unicas  = lista.filter(t => t.prazo !== "diaria");
+  const diarias = lista.filter(t => t.prazo === "diaria");
+
+  if (lista.length === 0) {
+    body.innerHTML = `<div class="minhas-vazio">${minhas.modo === "atribuidas"
+      ? "Nenhuma tarefa em aberto com você."
+      : "Nenhuma tarefa em aberto que você criou para outra pessoa."}</div>`;
+    return;
+  }
+
+  if (diarias.length) {
+    const feitas = diarias.filter(isDiariaFeitaHoje).length;
+    body.appendChild(grupoMinhas(`Diárias de hoje`, `${feitas} de ${diarias.length} feitas`, diarias, "", hoje));
+  }
+  grupos.forEach(([titulo, filtro, cls]) => {
+    const itens = unicas.filter(filtro).sort((a, b) =>
+      (a.dataPrazo || "9999").localeCompare(b.dataPrazo || "9999") || (peso[a.urgencia] ?? 1) - (peso[b.urgencia] ?? 1));
+    if (itens.length) body.appendChild(grupoMinhas(titulo, plural(itens.length, "tarefa", "tarefas"), itens, cls, hoje));
+  });
+}
+
+function grupoMinhas(titulo, contagem, itens, cls, hoje) {
+  const sec = document.createElement("section");
+  sec.className = "minhas-grupo" + (cls ? ` ${cls}` : "");
+  sec.innerHTML = `<h3><span></span><span class="minhas-contagem"></span></h3><div class="minhas-lista"></div>`;
+  sec.querySelector("h3 span").textContent = titulo;
+  sec.querySelector(".minhas-contagem").textContent = contagem;
+  const lista = sec.querySelector(".minhas-lista");
+
+  itens.forEach(t => {
+    const eq = state.equipes.find(e => e.id === t.equipeId);
+    const col = colunaDaTarefa(t);
+    const resp = state.users.find(u => u.id === t.responsavel);
+    const diaria = t.prazo === "diaria";
+    const feita = isDiariaFeitaHoje(t);
+    const linha = document.createElement("div");
+    linha.className = "minhas-item" + (feita ? " feita" : "");
+    linha.innerHTML = `
+      ${diaria ? `<button class="diaria-checkbox ${feita ? "checked" : ""}" title="${feita ? "Desmarcar" : "Marcar como feita hoje"}">
+        ${feita ? `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>` : ""}</button>`
+        : `<div class="urgency-dot urg-${t.urgencia || "media"}" title="Urgência ${({ alta: "alta", media: "média", baixa: "baixa" })[t.urgencia] || "média"}"></div>`}
+      <span class="minhas-nome"></span>
+      <span class="minhas-equipe"></span>
+      <span class="minhas-coluna"><span class="col-dot"></span><span></span></span>
+      ${minhas.modo === "criadas" ? `<span class="minhas-resp">${resp ? avatarHTML(resp, "sm") : ""}<span></span></span>` : ""}
+      <span class="minhas-prazo"></span>
+      ${t.comentarios ? `<span class="card-comentarios" title="Comentários">${ICONE_COMENTARIO}${t.comentarios}</span>` : ""}`;
+    linha.querySelector(".minhas-nome").textContent = t.nome;
+    linha.querySelector(".minhas-equipe").textContent = eq ? eq.nome : "";
+    linha.querySelector(".minhas-coluna .col-dot").style.background = col?.cor || "var(--border2)";
+    linha.querySelector(".minhas-coluna span:last-child").textContent = col?.nome || "";
+    if (minhas.modo === "criadas") linha.querySelector(".minhas-resp > span:last-child").textContent = resp ? resp.nome : "Sem responsável";
+    const prazo = linha.querySelector(".minhas-prazo");
+    if (diaria) prazo.textContent = feita ? "feita hoje" : "pendente";
+    else if (!t.dataPrazo) prazo.textContent = "—";
+    else {
+      const d = t.dataPrazo.slice(0, 10);
+      const dias = Math.round((new Date(hoje + "T00:00:00") - new Date(d + "T00:00:00")) / 86400000);
+      prazo.textContent = d < hoje ? `${plural(dias, "dia", "dias")} de atraso` : d === hoje ? "vence hoje" : formatDate(d);
+      if (d < hoje) prazo.classList.add("atrasada");
+    }
+
+    linha.querySelector(".diaria-checkbox")?.addEventListener("click", async e => {
+      e.stopPropagation();
+      await salvarCampo(t, { diariaFeitaEm: feita ? null : todayStr() });
+      renderMinhas();
+    });
+    linha.addEventListener("click", () => openDetail(t.id));
+    lista.appendChild(linha);
+  });
+  return sec;
+}
+
+document.getElementById("nav-minhas").addEventListener("click", abrirMinhas);
+document.querySelectorAll("#minhas-modo button").forEach(b => b.addEventListener("click", () => {
+  minhas.modo = b.dataset.modo;
+  renderMinhas();
 }));
 
 // ── Helpers ───────────────────────────────────────────────

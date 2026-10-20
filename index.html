@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Portal de Tarefas</title>
-  <link rel="stylesheet" href="static/style.css?v=2026-10-20b" />
+  <link rel="stylesheet" href="static/style.css?v=2026-10-20d" />
 </head>
 <body>
 
@@ -88,6 +88,14 @@
     </div>
 
     <div class="nav-section-label" style="margin-top:18px;">Menu</div>
+
+    <div class="nav-item" id="nav-minhas" title="Minhas tarefas">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+      </svg>
+      <span class="nav-texto">Minhas tarefas</span>
+      <span class="nav-equipe-count" id="nav-minhas-count"></span>
+    </div>
 
     <div class="nav-item" id="nav-dashboard" title="Dashboard">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -210,6 +218,11 @@
       <!-- renderizado via JS -->
     </div>
 
+    <!-- Visão em calendário -->
+    <div id="calendario-view" class="hidden">
+      <!-- renderizado via JS -->
+    </div>
+
     <!-- Concluídas -->
     <div id="concluded-screen">
       <div class="concluded-topbar">
@@ -228,6 +241,16 @@
     </div>
 
     <!-- Gerenciador de Base -->
+    <div id="minhas-screen">
+      <div class="admin-topbar dash-topbar">
+        <div class="visao-toggle" id="minhas-modo">
+          <button type="button" data-modo="atribuidas">Atribuídas a mim</button>
+          <button type="button" data-modo="criadas">Que eu criei</button>
+        </div>
+      </div>
+      <div class="dash-body" id="minhas-body"></div>
+    </div>
+
     <div id="dashboard-screen">
       <div class="admin-topbar dash-topbar">
         <div class="dash-filtros">
@@ -826,6 +849,6 @@
   <span style="color:var(--muted);font-size:13px;">Conectando ao servidor...</span>
 </div>
 
-<script src="static/script.js?v=2026-10-20b"></script>
+<script src="static/script.js?v=2026-10-20d"></script>
 </body>
 </html>
