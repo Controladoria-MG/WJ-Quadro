@@ -1831,3 +1831,19 @@ button.dash-kpi { font: inherit; color: inherit; text-align: left; }
 .dash-lista { max-height: 340px; overflow-y: auto; }
 .dash-lista-situacao { color: var(--muted); white-space: nowrap; }
 .dash-lista-situacao.destaque { color: var(--vermelho-forte); font-weight: 600; }
+
+/* ── Mover colunas (arrastar) ─────────────────────────────── */
+#board .column-header[draggable="true"] { cursor: grab; }
+#board .column-header[draggable="true"]:active { cursor: grabbing; }
+#board .column.coluna-arrastando { opacity: .4; }
+#board .column.soltar-antes  { box-shadow: inset 3px 0 0 var(--green); }
+#board .column.soltar-depois { box-shadow: inset -3px 0 0 var(--green); }
+
+.coluna-alca {
+  display: flex; align-items: center; justify-content: center;
+  width: 18px; height: 26px; color: var(--muted2); cursor: grab; flex-shrink: 0;
+}
+.coluna-alca:hover { color: var(--white); }
+.coluna-edit-row.coluna-arrastando { opacity: .4; }
+.coluna-edit-row.soltar-antes  { box-shadow: 0 -2px 0 var(--green); }
+.coluna-edit-row.soltar-depois { box-shadow: 0 2px 0 var(--green); }

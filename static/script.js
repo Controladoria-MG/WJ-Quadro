@@ -697,14 +697,53 @@ function renderBoard() {
     col_el.querySelector(".column-nome").textContent = col.nome;
     board.appendChild(col_el);
 
+    // Mover a coluna: arrastar pelo cabeçalho (só quem administra o quadro).
+    if (gestor) {
+      const header = col_el.querySelector(".column-header");
+      header.draggable = true;
+      header.title = "Arraste para mudar a coluna de lugar";
+      header.addEventListener("dragstart", e => {
+        e.dataTransfer.setData(TIPO_COLUNA, String(col.id));
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setDragImage(col_el, 20, 20);
+        requestAnimationFrame(() => col_el.classList.add("coluna-arrastando"));
+      });
+      header.addEventListener("dragend", () => {
+        col_el.classList.remove("coluna-arrastando");
+        limparMarcasDeSoltar("#board .column");
+      });
+      col_el.addEventListener("dragover", e => {
+        if (!arrastandoColuna(e)) return;
+        e.preventDefault();
+        limparMarcasDeSoltar("#board .column");
+        col_el.classList.add(`soltar-${ladoDoMouse(e, col_el, true)}`);
+      });
+      col_el.addEventListener("dragleave", e => {
+        if (!col_el.contains(e.relatedTarget)) col_el.classList.remove("soltar-antes", "soltar-depois");
+      });
+      col_el.addEventListener("drop", e => {
+        if (!arrastandoColuna(e)) return;
+        e.preventDefault();
+        const movidaId = Number(e.dataTransfer.getData(TIPO_COLUNA));
+        const lado = ladoDoMouse(e, col_el, true);
+        limparMarcasDeSoltar("#board .column");
+        const semMovida = colunas.filter(c => c.id !== movidaId);
+        const alvo = semMovida.findIndex(c => c.id === col.id);
+        if (alvo === -1) return;   // soltou em cima dela mesma
+        reordenarColunas(eq, movidaId, lado === "antes" ? alvo : alvo + 1);
+      });
+    }
+
     const body = col_el.querySelector(".column-body");
 
     body.addEventListener("dragover", e => {
+      if (arrastandoColuna(e)) return;   // quem trata é a coluna
       e.preventDefault();
       body.classList.add("drag-over");
     });
     body.addEventListener("dragleave", () => body.classList.remove("drag-over"));
     body.addEventListener("drop", e => {
+      if (arrastandoColuna(e)) return;
       e.preventDefault();
       body.classList.remove("drag-over");
       const id = Number(e.dataTransfer.getData("text/plain"));
@@ -2090,6 +2129,45 @@ document.getElementById("btn-save-grupo").addEventListener("click", async () => 
   }
 });
 
+// ── Ordem das colunas ─────────────────────────────────────
+// Muda a ordem na tela na hora e grava em seguida; se o servidor recusar,
+// volta como estava.
+async function reordenarColunas(eq, colunaId, novoIndice) {
+  const anterior = [...eq.colunas];
+  const movida = eq.colunas.find(c => c.id === colunaId);
+  if (!movida) return;
+  const resto = eq.colunas.filter(c => c.id !== colunaId);
+  novoIndice = Math.max(0, Math.min(novoIndice, resto.length));
+  resto.splice(novoIndice, 0, movida);
+  if (resto.every((c, i) => c.id === anterior[i].id)) return;   // não mudou de lugar
+  eq.colunas = resto;
+  renderBoard();
+  if (!document.getElementById("modal-colunas-overlay").classList.contains("hidden")) renderColunasModal();
+  try {
+    substituirEquipe(await api.ordenarColunas(eq.id, resto.map(c => c.id)));
+  } catch (err) {
+    eq.colunas = anterior;
+    toast(err.message, true);
+  }
+  renderBoard();
+  if (!document.getElementById("modal-colunas-overlay").classList.contains("hidden")) renderColunasModal();
+}
+
+const TIPO_COLUNA = "application/x-coluna";
+const arrastandoColuna = e => e.dataTransfer.types.includes(TIPO_COLUNA);
+
+// Antes ou depois do elemento, conforme o lado em que o mouse está.
+function ladoDoMouse(e, el, horizontal) {
+  const r = el.getBoundingClientRect();
+  return horizontal
+    ? (e.clientX < r.left + r.width / 2 ? "antes" : "depois")
+    : (e.clientY < r.top + r.height / 2 ? "antes" : "depois");
+}
+
+function limparMarcasDeSoltar(seletor) {
+  document.querySelectorAll(seletor).forEach(el => el.classList.remove("soltar-antes", "soltar-depois"));
+}
+
 // ── Modal: Colunas do quadro ──────────────────────────────
 function openColunasModal() {
   if (!equipeAtual()) return;
@@ -2125,8 +2203,11 @@ function renderColunasModal() {
     const row = document.createElement("div");
     row.className = "coluna-edit-row";
     row.innerHTML = `
-      <button type="button" class="btn-ordem" data-dir="-1" title="Mover para a esquerda" ${i === 0 ? "disabled" : ""}>◀</button>
-      <button type="button" class="btn-ordem" data-dir="1" title="Mover para a direita" ${i === eq.colunas.length - 1 ? "disabled" : ""}>▶</button>
+      <span class="coluna-alca" title="Arraste para mudar a ordem">
+        <svg width="12" height="14" viewBox="0 0 12 14" fill="currentColor"><circle cx="3" cy="2" r="1.4"/><circle cx="9" cy="2" r="1.4"/><circle cx="3" cy="7" r="1.4"/><circle cx="9" cy="7" r="1.4"/><circle cx="3" cy="12" r="1.4"/><circle cx="9" cy="12" r="1.4"/></svg>
+      </span>
+      <button type="button" class="btn-ordem" data-dir="-1" title="Mover para cima" ${i === 0 ? "disabled" : ""}>↑</button>
+      <button type="button" class="btn-ordem" data-dir="1" title="Mover para baixo" ${i === eq.colunas.length - 1 ? "disabled" : ""}>↓</button>
       <input type="color" />
       <input type="text" />
       <label class="coluna-conclui"><input type="checkbox" /> Conclui</label>
@@ -2151,12 +2232,41 @@ function renderColunasModal() {
     inputCor.addEventListener("change", salvar);
     inputFinal.addEventListener("change", salvar);
 
-    row.querySelectorAll(".btn-ordem").forEach(btn => btn.addEventListener("click", () => {
-      const ids = eq.colunas.map(x => x.id);
-      const j = i + Number(btn.dataset.dir);
-      [ids[i], ids[j]] = [ids[j], ids[i]];
-      salvarLayout(api.ordenarColunas(eq.id, ids));
-    }));
+    row.querySelectorAll(".btn-ordem").forEach(btn => btn.addEventListener("click", () =>
+      reordenarColunas(eq, c.id, i + Number(btn.dataset.dir))
+    ));
+
+    // Arrastar pela alça (só a alça liga o arrastar, para não atrapalhar
+    // a seleção de texto no campo do nome).
+    const alca = row.querySelector(".coluna-alca");
+    alca.addEventListener("mousedown", () => { row.draggable = true; });
+    row.addEventListener("dragstart", e => {
+      e.dataTransfer.setData(TIPO_COLUNA, String(c.id));
+      e.dataTransfer.effectAllowed = "move";
+      requestAnimationFrame(() => row.classList.add("coluna-arrastando"));
+    });
+    row.addEventListener("dragend", () => {
+      row.draggable = false;
+      row.classList.remove("coluna-arrastando");
+      limparMarcasDeSoltar(".coluna-edit-row");
+    });
+    row.addEventListener("dragover", e => {
+      if (!arrastandoColuna(e)) return;
+      e.preventDefault();
+      limparMarcasDeSoltar(".coluna-edit-row");
+      row.classList.add(`soltar-${ladoDoMouse(e, row, false)}`);
+    });
+    row.addEventListener("drop", e => {
+      if (!arrastandoColuna(e)) return;
+      e.preventDefault();
+      const movidaId = Number(e.dataTransfer.getData(TIPO_COLUNA));
+      const lado = ladoDoMouse(e, row, false);
+      limparMarcasDeSoltar(".coluna-edit-row");
+      const semMovida = eq.colunas.filter(x => x.id !== movidaId);
+      const alvo = semMovida.findIndex(x => x.id === c.id);
+      if (alvo === -1) return;
+      reordenarColunas(eq, movidaId, lado === "antes" ? alvo : alvo + 1);
+    });
 
     row.querySelector(".btn-remove-etapa").addEventListener("click", async () => {
       const ok = await showConfirm(`Excluir a coluna "${c.nome}"?`, { title: "Excluir coluna", confirmLabel: "Excluir" });
