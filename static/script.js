@@ -100,7 +100,7 @@ const api = {
   deletarColuna:   (id)       => apiFetch("DELETE", `/api/colunas/${id}`),
   ordenarColunas:  (equipeId, ids) => apiFetch("PUT", `/api/equipes/${equipeId}/colunas/ordem`, { ids }),
   renomearEquipe:  (id, nome) => apiFetch("PUT",    `/api/equipes/${id}`, { nome }),
-  deletarEquipe:   (id)       => apiFetch("DELETE", `/api/equipes/${id}`),
+  deletarEquipe:   (id, comTarefas = false) => apiFetch("DELETE", `/api/equipes/${id}${comTarefas ? "?com_tarefas=true" : ""}`),
   salvarMembro:    (id, usuarioId, papel) => apiFetch("PUT", `/api/equipes/${id}/membros`, { usuarioId, papel }),
   removerMembro:   (id, usuarioId)        => apiFetch("DELETE", `/api/equipes/${id}/membros/${usuarioId}`),
 };
@@ -2236,20 +2236,39 @@ document.getElementById("btn-equipe-renomear").addEventListener("click", async (
   }
 });
 
+// Exclui a equipe/grupo; se houver tarefas, a confirmação diz quantas vão junto.
+async function excluirEquipe(eq) {
+  const nTarefas = state.tarefas.filter(t => t.equipeId === eq.id).length;
+  const mensagem = nTarefas
+    ? `Excluir ${eq.nome}? Isso também exclui ${plural(nTarefas, "tarefa", "tarefas")}, com comentários e histórico. Essa ação não pode ser desfeita.`
+    : `Excluir ${eq.nome}? Essa ação não pode ser desfeita.`;
+  const ok = await showConfirm(mensagem, { title: "Excluir grupo", confirmLabel: "Excluir" });
+  if (!ok) return false;
+  try {
+    await api.deletarEquipe(eq.id, nTarefas > 0);
+  } catch (err) {
+    toast(err.message, true);
+    return false;
+  }
+  state.equipes = state.equipes.filter(e => e.id !== eq.id);
+  state.tarefas = state.tarefas.filter(t => t.equipeId !== eq.id);
+  if (state.equipeAtual === eq.id) {
+    state.equipeAtual = state.equipes[0]?.id ?? null;
+    salvarPreferencia("equipeAtual", String(state.equipeAtual ?? ""));
+  }
+  renderNavEquipes();
+  renderFiltroUsuarios();
+  renderBoard();
+  if (configVisivel()) renderConfig();
+  toast(`${eq.nome} excluído.`);
+  return true;
+}
+
 document.getElementById("btn-equipe-excluir").addEventListener("click", async () => {
   const eq = equipeAtual();
   if (!eq) return;
-  const ok = await showConfirm(`Excluir a equipe ${eq.nome}? Só é possível excluir equipes sem tarefas.`);
-  if (!ok) return;
-  try {
-    await api.deletarEquipe(eq.id);
-    state.equipes = state.equipes.filter(e => e.id !== eq.id);
-    closeEquipeModal();
-    escolherEquipe(state.equipes[0]?.id ?? null);
-    toast("Equipe excluída.");
-  } catch (err) {
-    toast(err.message, true);
-  }
+  document.getElementById("modal-equipe-overlay").classList.add("hidden");
+  if (!(await excluirEquipe(eq))) openEquipeModal();
 });
 
 // ── Modal: Novo grupo ─────────────────────────────────────
@@ -3968,6 +3987,7 @@ function renderConfig() {
       </div>
       <div class="config-equipe-acoes">
         <button type="button" class="btn btn-ghost btn-sm" data-acao="membros">${gestor ? "Membros" : "Ver membros"}</button>
+        ${gestor ? `<button type="button" class="btn btn-danger btn-sm" data-acao="excluir">Excluir</button>` : ""}
       </div>`;
     linha.querySelector("strong").textContent = eq.nome;
     const usarEquipe = () => {
@@ -3975,6 +3995,8 @@ function renderConfig() {
       salvarPreferencia("equipeAtual", String(eq.id));
     };
     linha.querySelector('[data-acao="membros"]').onclick = () => { usarEquipe(); openEquipeModal(); };
+    const btnExcluir = linha.querySelector('[data-acao="excluir"]');
+    if (btnExcluir) btnExcluir.onclick = () => excluirEquipe(eq);
     ce.appendChild(linha);
   });
   body.appendChild(equipes);

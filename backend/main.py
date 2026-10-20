@@ -1001,20 +1001,27 @@ def renomear_equipe(equipe_id: int, equipe: Equipe, request: Request):
 
 
 @app.delete("/api/equipes/{equipe_id}", status_code=204)
-def deletar_equipe(equipe_id: int, request: Request):
+def deletar_equipe(equipe_id: int, request: Request, com_tarefas: bool = False):
+    """Exclui a equipe/grupo. Com tarefas, só se `com_tarefas=true` (a tela
+    pede confirmação mostrando quantas serão apagadas junto)."""
     with get_conn() as conn:
         with conn.cursor() as cur:
             usuario = exigir_usuario(request, cur)
             exigir_gestor_equipe(cur, usuario, equipe_id)
+            cur.execute("SELECT nome FROM equipes WHERE id = %s", (equipe_id,))
+            equipe = cur.fetchone()
+            if not equipe:
+                raise HTTPException(status_code=404, detail="Equipe não encontrada")
             cur.execute("SELECT COUNT(*) AS c FROM tarefas WHERE equipe_id = %s", (equipe_id,))
             if cur.fetchone()["c"] > 0:
-                raise HTTPException(
-                    status_code=400,
-                    detail="A equipe ainda tem tarefas. Exclua ou mova as tarefas antes."
-                )
-            cur.execute("DELETE FROM equipes WHERE id = %s RETURNING id", (equipe_id,))
-            if not cur.fetchone():
-                raise HTTPException(status_code=404, detail="Equipe não encontrada")
+                if not com_tarefas:
+                    raise HTTPException(status_code=400, detail="A equipe ainda tem tarefas.")
+                # comentários, histórico e notificações das tarefas saem junto (cascade)
+                cur.execute("DELETE FROM tarefas WHERE equipe_id = %s", (equipe_id,))
+            cur.execute("SELECT usuario_id FROM equipe_membros WHERE equipe_id = %s", (equipe_id,))
+            membros = [r["usuario_id"] for r in cur.fetchall()]
+            cur.execute("DELETE FROM equipes WHERE id = %s", (equipe_id,))
+            notificar(cur, membros, usuario, f'{usuario["nome"]} excluiu {equipe["nome"]}')
             conn.commit()
     return None
 
