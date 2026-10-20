@@ -198,6 +198,7 @@ function renderNavEquipes() {
     : emConfig ? "Aparência, perfil e equipes"
     : "Crie e acompanhe tarefas internas da equipe";
   document.getElementById("btn-equipe-membros").classList.toggle("hidden", !eq);
+  renderMembrosNoTopo(eq, noDashboard || emMinhas || emConfig);
   document.getElementById("btn-colunas").classList.toggle("hidden", !souGestorDaEquipe(eq));
   document.getElementById("btn-new-task").disabled = !eq;
 }
@@ -236,7 +237,7 @@ function usuarioOcupado() {
   if (salvamentosEmAndamento > 0) return true;
   if (document.querySelector(".modal-overlay:not(.hidden):not(#loading-overlay)")) return true;
   if (document.querySelector(".task-card.dragging")) return true;
-  if (document.getElementById("coluna-menu")) return true;
+  if (document.getElementById("coluna-menu") || document.getElementById("resp-menu")) return true;
   if (document.getElementById("admin-screen").classList.contains("visible")) return true;
   const ativo = document.activeElement;
   return !!ativo && ["INPUT", "TEXTAREA", "SELECT"].includes(ativo.tagName);
@@ -271,6 +272,19 @@ setInterval(atualizarEmSegundoPlano, INTERVALO_ATUALIZACAO);
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden) atualizarEmSegundoPlano();
 });
+
+// Avatares empilhados ao lado do título; clicar abre os membros.
+function renderMembrosNoTopo(eq, emOutraTela) {
+  const el = document.getElementById("topbar-membros");
+  const membros = eq && !emOutraTela ? membrosDaEquipe(eq.id) : [];
+  el.classList.toggle("hidden", membros.length === 0);
+  if (!membros.length) return;
+  const MAX = 5;
+  el.innerHTML = membros.slice(0, MAX).map(u => avatarHTML(u, "sm")).join("")
+    + (membros.length > MAX ? `<span class="topbar-membros-mais">+${membros.length - MAX}</span>` : "");
+  el.title = `${plural(membros.length, "membro", "membros")}: ${membros.map(u => u.nome).join(", ")}`;
+  el.onclick = openEquipeModal;
+}
 
 // ── Barra lateral recolhível ──────────────────────────────
 function aplicarSidebarRecolhida(recolhida) {
@@ -617,34 +631,45 @@ function renderFiltroUsuarios() {
   const group = document.createElement("div");
   group.className = "filtro-group";
 
-  const label = document.createElement("span");
-  label.className = "filtro-group-label";
-  label.textContent = "Filtrar:";
-  group.appendChild(label);
+  // Busca por nome ou descrição
+  const busca = document.createElement("div");
+  busca.className = "filtro-busca";
+  busca.innerHTML = `
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    <input type="text" placeholder="Buscar tarefa..." />`;
+  const inputBusca = busca.querySelector("input");
+  inputBusca.value = state.busca || "";
+  inputBusca.oninput = () => { state.busca = inputBusca.value; renderBoard(); };
+  inputBusca.onkeydown = e => { if (e.key === "Escape") { inputBusca.value = ""; state.busca = ""; inputBusca.blur(); renderBoard(); } };
+  group.appendChild(busca);
 
-  // Botão Todos
+  // Pessoas: avatares (clicar filtra pelo responsável)
+  const pessoas = document.createElement("div");
+  pessoas.className = "filtro-avatares";
   const btnTodos = document.createElement("button");
+  btnTodos.type = "button";
   btnTodos.className = "filtro-btn" + (state.filtroUsuario === null ? " active" : "");
   btnTodos.textContent = "Todos";
-  btnTodos.onclick = () => {
-    state.filtroUsuario = null;
-    renderFiltroUsuarios();
-    renderBoard();
-  };
-  group.appendChild(btnTodos);
+  btnTodos.onclick = () => { state.filtroUsuario = null; renderFiltroUsuarios(); renderBoard(); };
+  pessoas.appendChild(btnTodos);
 
-  // Botão por membro da equipe
-  membrosDaEquipe(state.equipeAtual).forEach(u => {
+  const membros = membrosDaEquipe(state.equipeAtual)
+    .sort((a, b) => (b.id === state.current?.id) - (a.id === state.current?.id));   // você primeiro
+  membros.forEach(u => {
     const btn = document.createElement("button");
-    btn.className = "filtro-btn" + (state.filtroUsuario === u.id ? " active" : "");
-    btn.innerHTML = `${escapeHTML(u.avatar || "")} ${escapeHTML(u.nome)}`;
+    btn.type = "button";
+    btn.className = "filtro-avatar" + (state.filtroUsuario === u.id ? " active" : "");
+    btn.title = u.id === state.current?.id ? `${u.nome} (você)` : u.nome;
+    btn.setAttribute("aria-label", btn.title);
+    btn.innerHTML = avatarHTML(u, "sm");
     btn.onclick = () => {
-      state.filtroUsuario = u.id;
+      state.filtroUsuario = state.filtroUsuario === u.id ? null : u.id;   // clicar de novo tira o filtro
       renderFiltroUsuarios();
       renderBoard();
     };
-    group.appendChild(btn);
+    pessoas.appendChild(btn);
   });
+  group.appendChild(pessoas);
 
   bar.appendChild(group);
   bar.appendChild(controlesDaBarra());
@@ -839,13 +864,7 @@ function renderBoard() {
 
     if (tasks.length === 0) {
       body.innerHTML = `
-        <div class="column-empty">
-          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-            <rect x="3" y="3" width="18" height="18" rx="2"/>
-            <line x1="9" y1="9" x2="15" y2="15"/><line x1="15" y1="9" x2="9" y2="15"/>
-          </svg>
-          <span>Nenhuma tarefa</span>
-        </div>`;
+        <div class="column-empty">${state.busca || state.filtroUsuario !== null ? "Nada com esse filtro" : "Nenhuma tarefa"}</div>`;
     } else {
       ordenarTarefas(tasks).forEach(t => body.appendChild(
         t.prazo === "diaria" ? buildDiariaCard(t) : buildCard(t)
@@ -888,10 +907,96 @@ function renderBoard() {
 }
 
 // ── Cards ─────────────────────────────────────────────────
+function nomeOuVoce(u) {
+  return u.id === state.current?.id ? "Você" : escapeHTML(u.nome);
+}
+
+// Ações que aparecem ao passar o mouse no card: concluir e trocar o responsável.
+function acoesRapidasHTML(t) {
+  const concluir = t.prazo !== "diaria" && !t.concluida
+    ? `<button type="button" class="card-acao" data-acao="concluir" title="Concluir">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+      </button>` : "";
+  return `${concluir}
+    <button type="button" class="card-acao" data-acao="responsavel" title="Trocar responsável">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+    </button>`;
+}
+
+function ligarAcoesRapidas(el, t) {
+  el.querySelector('.card-acao[data-acao="concluir"]')?.addEventListener("click", e => {
+    e.stopPropagation();
+    concluirRapido(t);
+  });
+  const btnResp = el.querySelector('.card-acao[data-acao="responsavel"]');
+  btnResp?.addEventListener("click", e => {
+    e.stopPropagation();
+    abrirMenuResponsavel(btnResp, t);
+  });
+  el.querySelectorAll(".card-acao").forEach(b => b.addEventListener("mousedown", e => e.stopPropagation()));
+}
+
+async function concluirRapido(t) {
+  const final = colunaFinal(t.equipeId);
+  if (final) {
+    await moverTarefa(t, final);
+  } else {
+    const anterior = { ...t };
+    Object.assign(t, { concluida: true, status: "concluida", concluidoEm: new Date().toISOString(), concluidoPor: state.current?.id ?? null });
+    renderBoard();
+    try {
+      Object.assign(t, await api.patchTarefa(t.id, camposConclusao(t)));
+    } catch (err) {
+      Object.assign(t, anterior);
+      renderBoard();
+      toast(err.message, true);
+      return;
+    }
+    renderBoard();
+  }
+  if (t.concluida) toast("Tarefa concluída!");
+}
+
+function fecharMenuResponsavel() {
+  document.getElementById("resp-menu")?.remove();
+}
+
+function abrirMenuResponsavel(botao, t) {
+  const jaAberto = document.getElementById("resp-menu")?.dataset.tarefa === String(t.id);
+  fecharMenuResponsavel();
+  fecharMenuColuna();
+  if (jaAberto) return;
+  const menu = document.createElement("div");
+  menu.id = "resp-menu";
+  menu.className = "coluna-menu resp-menu";
+  menu.dataset.tarefa = t.id;
+  const opcoes = [{ id: null, nome: "Sem responsável" }, ...membrosDaEquipe(t.equipeId)];
+  menu.innerHTML = `<div class="coluna-menu-secao">Responsável</div>` + opcoes.map(u => `
+    <button type="button" data-id="${u.id ?? ""}" class="${(t.responsavel ?? null) === u.id ? "atual" : ""}">
+      ${u.id ? avatarHTML(u, "sm") : `<span class="resp-menu-vazio"></span>`}
+      <span>${u.id ? nomeOuVoce(u) : "Sem responsável"}</span>
+    </button>`).join("");
+  document.body.appendChild(menu);
+  const r = botao.getBoundingClientRect();
+  menu.style.top  = `${Math.min(r.bottom + 6, window.innerHeight - menu.offsetHeight - 8)}px`;
+  menu.style.left = `${Math.max(8, Math.min(r.right - menu.offsetWidth, window.innerWidth - menu.offsetWidth - 8))}px`;
+  menu.addEventListener("mousedown", e => e.stopPropagation());
+  menu.querySelectorAll("button[data-id]").forEach(b => b.onclick = () => {
+    fecharMenuResponsavel();
+    const novo = b.dataset.id ? Number(b.dataset.id) : null;
+    if (novo !== (t.responsavel ?? null)) salvarCampo(t, { responsavel: novo });
+  });
+}
+
+document.addEventListener("mousedown", e => {
+  if (!e.target.closest("#resp-menu, .card-acao")) fecharMenuResponsavel();
+});
+document.addEventListener("keydown", e => { if (e.key === "Escape") fecharMenuResponsavel(); });
+
 function buildDiariaCard(t) {
   const feita = isDiariaFeitaHoje(t);
   const el = document.createElement("div");
-  el.className = `task-card task-card-diaria ${feita ? "diaria-feita" : ""}`;
+  el.className = `task-card task-card-diaria ${feita ? "diaria-feita" : ""}${t.responsavel === state.current?.id ? " card-meu" : ""}`;
   el.draggable = true;
   el.addEventListener("dragstart", e => {
     e.dataTransfer.setData("text/plain", String(t.id));
@@ -909,6 +1014,7 @@ function buildDiariaCard(t) {
         ${feita ? `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>` : ""}
       </button>
       <div class="card-title diaria-title">${escapeHTML(t.nome)}</div>
+${acoesRapidasHTML(t)}
       <button class="card-delete-btn" title="Excluir tarefa diária">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <polyline points="3 6 5 6 21 6"/>
@@ -924,7 +1030,7 @@ function buildDiariaCard(t) {
         ? `<span class="badge badge-concluida">Feita hoje</span>`
         : `<span class="badge badge-pendente">Pendente</span>`}
       ${resp
-        ? `<div class="card-resp">${avatarHTML(resp, "sm")}<span>${escapeHTML(resp.nome)}</span></div>`
+        ? `<div class="card-resp">${avatarHTML(resp, "sm")}<span>${nomeOuVoce(resp)}</span></div>`
         : `<span style="color:var(--muted2)">Sem resp.</span>`}
     </div>
     ${feita ? `<div class="diaria-reset-hint">↻ Será resetada amanhã</div>` : ""}`;
@@ -941,6 +1047,7 @@ function buildDiariaCard(t) {
     }
   });
 
+  ligarAcoesRapidas(el, t);
   el.querySelector(".card-delete-btn").addEventListener("click", async e => {
     e.stopPropagation();
     const ok = await showConfirm(`Excluir a tarefa diária "${t.nome}" permanentemente? Essa ação não pode ser desfeita.`);
@@ -961,7 +1068,8 @@ function buildDiariaCard(t) {
 
 function buildCard(t) {
   const el = document.createElement("div");
-  el.className = "task-card" + (situacaoPrazo(t) === "atrasada" ? " card-atrasada" : "");
+  el.className = "task-card" + (situacaoPrazo(t) === "atrasada" ? " card-atrasada" : "")
+    + (t.responsavel === state.current?.id ? " card-meu" : "");
   el.draggable = true;
   el.addEventListener("dragstart", e => {
     e.dataTransfer.setData("text/plain", String(t.id));
@@ -986,6 +1094,7 @@ function buildCard(t) {
   el.innerHTML = `
     <div class="card-title-row">
       <div class="card-title">${escapeHTML(t.nome)}</div>
+      ${acoesRapidasHTML(t)}
       <button class="card-delete-btn" title="Excluir tarefa">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <polyline points="3 6 5 6 21 6"/>
@@ -1008,12 +1117,13 @@ function buildCard(t) {
       </div>` : ""}
     <div class="card-footer">
       <span class="card-date">${t.comentarios ? `<span class="card-comentarios" title="Comentários">${ICONE_COMENTARIO}${t.comentarios}</span>` : ""}${resp ? "" : "Sem resp."}</span>
-      ${resp ? `<div class="card-resp">${avatarHTML(resp, "sm")}<span>${escapeHTML(resp.nome)}</span></div>` : ""}
+      ${resp ? `<div class="card-resp">${avatarHTML(resp, "sm")}<span>${nomeOuVoce(resp)}</span></div>` : ""}
     </div>
     ${t.concluida && t.concluidoEm ? `
       <div class="card-concluido-info">Concluída em ${formatDate(t.concluidoEm)}${concluidor ? ` por ${escapeHTML(concluidor.nome)}` : ""}</div>
     ` : ""}`;
 
+  ligarAcoesRapidas(el, t);
   el.querySelector(".card-delete-btn").addEventListener("click", async e => {
     e.stopPropagation();
     const ok = await showConfirm(`Excluir a tarefa "${t.nome}" permanentemente? Essa ação não pode ser desfeita.`);
@@ -2552,11 +2662,16 @@ function ordenarTarefas(lista) {
 }
 
 // Tarefas da equipe atual com o filtro de responsável aplicado.
+function semAcento(s) {
+  return String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+}
+
 function tarefasVisiveis() {
-  const daEquipe = tarefasDaEquipeAtual();
-  return state.filtroUsuario !== null
-    ? daEquipe.filter(t => t.responsavel === state.filtroUsuario)
-    : daEquipe;
+  let lista = tarefasDaEquipeAtual();
+  if (state.filtroUsuario !== null) lista = lista.filter(t => t.responsavel === state.filtroUsuario);
+  const termo = semAcento(state.busca).trim();
+  if (termo) lista = lista.filter(t => semAcento(t.nome).includes(termo) || semAcento(t.descricao).includes(termo));
+  return lista;
 }
 
 function tarefasDaColuna(lista, col) {
