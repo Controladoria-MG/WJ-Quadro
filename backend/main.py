@@ -1,5 +1,5 @@
 """
-Portal de Tarefas — Backend FastAPI + PostgreSQL
+Quadro — Backend FastAPI + PostgreSQL
 Os dados ficam em tabelas reais e nunca se perdem entre deploys.
 A conexão é lida da variável de ambiente DATABASE_URL.
 
@@ -63,7 +63,7 @@ COLUNAS_PADRAO = [
 ]
 
 # ── App ────────────────────────────────────────────────────
-app = FastAPI(title="Portal de Tarefas", version="3.0.0")
+app = FastAPI(title="Quadro", version="3.0.0")
 
 app.add_middleware(
     CORSMiddleware,

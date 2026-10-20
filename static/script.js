@@ -746,7 +746,7 @@ function boasVindas() {
   const el = document.createElement("div");
   el.className = "boas-vindas";
   el.innerHTML = `
-    <h2>Bem-vindo ao Portal de Tarefas</h2>
+    <h2>Bem-vindo ao Quadro</h2>
     <p>Você ainda não faz parte de nenhuma equipe. Peça a quem administra a sua equipe para te adicionar, ou crie um grupo com as pessoas com quem você trabalha.</p>
     <button type="button" class="btn btn-primary">Criar um grupo</button>`;
   el.querySelector("button").onclick = openGrupoModal;
@@ -3035,7 +3035,7 @@ function renderNotificacoes() {
   const badge = document.getElementById("notif-badge");
   badge.textContent = n > 99 ? "99+" : String(n);
   badge.classList.toggle("hidden", n === 0);
-  document.title = n > 0 ? `(${n}) Portal de Tarefas` : "Portal de Tarefas";
+  document.title = n > 0 ? `(${n}) Quadro` : "Quadro";
   document.getElementById("btn-notif-todas").disabled = n === 0;
 
   const lista = document.getElementById("notif-lista");
