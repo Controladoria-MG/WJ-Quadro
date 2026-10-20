@@ -1964,3 +1964,112 @@ button.dash-kpi { font: inherit; color: inherit; text-align: left; }
 }
 .boas-vindas h2 { font-family: var(--font-display); font-size: 18px; margin-bottom: 8px; }
 .boas-vindas p { color: var(--muted); font-size: 13px; line-height: 1.6; margin-bottom: 18px; }
+
+/* ── Tela principal mais limpa ────────────────────────────── */
+/* Membros e Colunas passaram para Configurações. */
+#btn-colunas, #btn-equipe-membros { display: none !important; }
+
+/* ── Configurações ────────────────────────────────────────── */
+#config-screen { display: none; flex-direction: column; flex: 1; overflow: hidden; }
+#config-screen.visible { display: flex; }
+#main.modo-config .topbar-actions > :not(#notif-wrap) { display: none; }
+.config-body { display: flex; flex-direction: column; gap: 14px; max-width: 820px; }
+.config-cartao {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 16px 18px 18px;
+}
+.config-cartao h3 { font-size: 14px; font-weight: 700; }
+.config-desc { font-size: 12px; color: var(--muted); margin: 2px 0 12px; }
+.config-conteudo { display: flex; flex-direction: column; gap: 10px; }
+.config-linha {
+  display: grid; grid-template-columns: 200px 1fr; align-items: center; gap: 12px;
+  padding: 8px 0; border-top: 1px solid var(--border);
+}
+.config-linha:first-child { border-top: none; padding-top: 0; }
+.config-rotulo { font-size: 13px; color: var(--muted); }
+.config-controle { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.config-cores { padding: 0; margin: 0; }
+.config-cores .theme-swatch { width: 24px; height: 24px; }
+
+.config-perfil { display: flex; align-items: center; gap: 14px; }
+.config-perfil-foto .avatar { width: 56px; height: 56px; font-size: 18px; }
+.config-perfil-acoes { display: flex; gap: 8px; flex-wrap: wrap; }
+.config-campos { display: grid; grid-template-columns: 1fr 1fr 110px; gap: 12px; }
+.config-campos .form-group { margin-bottom: 0; }
+.config-salvar { display: flex; justify-content: flex-end; }
+
+.config-novo-grupo { align-self: flex-start; }
+.config-equipe {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--surface2);
+}
+.config-equipe-info { min-width: 0; }
+.config-equipe-info strong { display: block; font-size: 13px; }
+.config-equipe-info span { font-size: 11.5px; color: var(--muted); }
+.config-equipe-acoes { display: flex; gap: 6px; flex-shrink: 0; }
+
+@media (max-width: 820px) {
+  .config-linha { grid-template-columns: 1fr; gap: 6px; }
+  .config-campos { grid-template-columns: 1fr; }
+  .config-equipe { flex-direction: column; align-items: flex-start; }
+}
+
+/* ── Modo claro ───────────────────────────────────────────── */
+/* Mesmas variáveis, outros valores. Os destaques usam o tom mais escuro
+   de cada cor para o texto continuar legível no fundo branco. A rampa de
+   status vermelha foi revalidada para fundo claro. */
+:root[data-tema="claro"] {
+  color-scheme: light;
+  --bg:          #f3f4f7;
+  --surface:     #ffffff;
+  --surface2:    #f2f4f7;
+  --surface3:    #e8ebf0;
+  --border:      #e0e3e9;
+  --border2:     #cdd2da;
+  --white:       #1b1e24;
+  --muted:       #5c6473;
+  --muted2:      #8a919e;
+
+  --green:        #16a34a;
+  --green-dim:    #15803d;
+  --green-glow:   rgba(22,163,74,.16);
+  --green-subtle: #16a34a14;
+
+  --vermelho-claro:    #f87171;
+  --vermelho-medio:    #ef4444;
+  --vermelho-forte:    #b91c1c;
+  --vermelho-profundo: #7f1d1d;
+  --neutro-grafico:    #c3c8d1;
+}
+:root[data-tema="claro"][data-accent="blue"]   { --green: #2563eb; --green-dim: #1d4ed8; --green-glow: rgba(37,99,235,.16);  --green-subtle: #2563eb14; }
+:root[data-tema="claro"][data-accent="purple"] { --green: #7c3aed; --green-dim: #6d28d9; --green-glow: rgba(124,58,237,.16); --green-subtle: #7c3aed14; }
+:root[data-tema="claro"][data-accent="orange"] { --green: #ea580c; --green-dim: #c2410c; --green-glow: rgba(234,88,12,.16);  --green-subtle: #ea580c14; }
+:root[data-tema="claro"][data-accent="pink"]   { --green: #db2777; --green-dim: #be185d; --green-glow: rgba(219,39,119,.16); --green-subtle: #db277714; }
+
+/* Texto sobre a cor de destaque: branco no claro (o destaque é mais escuro) */
+:root[data-tema="claro"] .btn-primary,
+:root[data-tema="claro"] .cal-dia.hoje .cal-num,
+:root[data-tema="claro"] .diaria-checkbox.checked { color: #fff; }
+:root[data-tema="claro"] .sidebar-brand-icon svg,
+:root[data-tema="claro"] .login-logo-icon svg { color: #fff; }
+
+/* "Vence hoje" usa o vermelho médio: o claro some no fundo branco */
+:root[data-tema="claro"] .card-prazo.hoje,
+:root[data-tema="claro"] .tabela-grupo td input.hoje,
+:root[data-tema="claro"] .detail-prop input[type="date"].hoje,
+:root[data-tema="claro"] .minhas-grupo.hoje h3 > span:first-child { color: var(--vermelho-medio); }
+
+/* Sombras e fundo das janelas mais suaves */
+:root[data-tema="claro"] .modal-overlay { background: rgba(20, 24, 33, .35); }
+:root[data-tema="claro"] .task-card:hover { box-shadow: 0 4px 14px rgba(20, 24, 33, .10); }
+:root[data-tema="claro"] .notif-painel { box-shadow: 0 12px 32px rgba(20, 24, 33, .16); }
+:root[data-tema="claro"] .theme-swatch { box-shadow: inset 0 0 0 1px rgba(0,0,0,.12); }
+:root[data-tema="claro"] .column-body.drag-over { background: rgba(0,0,0,.02); }
+:root[data-tema="claro"] .cal-dia.fim-de-semana { background: color-mix(in srgb, var(--surface3) 45%, var(--bg)); }
+
+/* Selects compactos: espaço à direita para a setinha não cobrir o texto */
+.ordenacao-sel,
+.detail-prop select,
+.tabela-grupo td select,
+.membro-row select { padding-right: 26px !important; }

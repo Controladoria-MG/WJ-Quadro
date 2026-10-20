@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Portal de Tarefas</title>
-  <link rel="stylesheet" href="static/style.css?v=2026-10-20f" />
+  <link rel="stylesheet" href="static/style.css?v=2026-10-20h" />
 </head>
 <body>
 
@@ -105,6 +105,14 @@
       Dashboard
     </div>
 
+    <div class="nav-item" id="nav-config" title="Configurações">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="12" r="3"/>
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+      </svg>
+      Configurações
+    </div>
+
     <div class="nav-item hidden" id="nav-admin" title="Gerenciador de Base">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <ellipse cx="12" cy="5" rx="8" ry="3"/>
@@ -112,15 +120,6 @@
         <path d="M4 12c0 1.66 3.58 3 8 3s8-1.34 8-3"/>
       </svg>
       Gerenciador de Base
-    </div>
-
-    <div class="nav-section-label" style="margin-top:18px;">Tema</div>
-    <div class="theme-swatches" id="theme-swatches">
-      <button class="theme-swatch" data-accent="green"  style="background:#22c55e" title="Verde"></button>
-      <button class="theme-swatch" data-accent="blue"   style="background:#3b82f6" title="Azul"></button>
-      <button class="theme-swatch" data-accent="purple" style="background:#8b5cf6" title="Roxo"></button>
-      <button class="theme-swatch" data-accent="orange" style="background:#f97316" title="Laranja"></button>
-      <button class="theme-swatch" data-accent="pink"   style="background:#ec4899" title="Rosa"></button>
     </div>
 
     <div class="sidebar-footer">
@@ -242,6 +241,10 @@
     </div>
 
     <!-- Gerenciador de Base -->
+    <div id="config-screen">
+      <div class="dash-body config-body" id="config-body"></div>
+    </div>
+
     <div id="minhas-screen">
       <div class="admin-topbar dash-topbar">
         <div class="visao-toggle" id="minhas-modo">
@@ -850,6 +853,6 @@
   <span style="color:var(--muted);font-size:13px;">Conectando ao servidor...</span>
 </div>
 
-<script src="static/script.js?v=2026-10-20f"></script>
+<script src="static/script.js?v=2026-10-20h"></script>
 </body>
 </html>
