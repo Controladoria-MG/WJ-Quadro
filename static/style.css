@@ -104,7 +104,7 @@ html, body {
   position: absolute;
   width: 600px; height: 600px;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(34,197,94,.08) 0%, transparent 70%);
+  background: radial-gradient(circle, color-mix(in srgb, var(--green) 8%, transparent) 0%, transparent 70%);
   top: -150px; left: -150px;
   pointer-events: none;
 }
@@ -113,7 +113,7 @@ html, body {
   position: absolute;
   width: 400px; height: 400px;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(34,197,94,.05) 0%, transparent 70%);
+  background: radial-gradient(circle, color-mix(in srgb, var(--green) 5%, transparent) 0%, transparent 70%);
   bottom: -100px; right: -100px;
   pointer-events: none;
 }
@@ -503,7 +503,7 @@ textarea { resize: vertical; min-height: 70px; }
 .nav-item.active {
   background: var(--green-subtle);
   color: var(--green);
-  border-color: rgba(34,197,94,.2);
+  border-color: color-mix(in srgb, var(--green) 20%, transparent);
 }
 .nav-item svg { flex-shrink: 0; }
 
@@ -725,11 +725,11 @@ textarea { resize: vertical; min-height: 70px; }
 .diaria-feita {
   opacity: .55;
   border-left-color: var(--green) !important;
-  background: rgba(34,197,94,.04) !important;
+  background: color-mix(in srgb, var(--green) 4%, transparent) !important;
 }
 .diaria-feita:hover {
   opacity: .75;
-  background: rgba(34,197,94,.07) !important;
+  background: color-mix(in srgb, var(--green) 7%, transparent) !important;
 }
 .diaria-feita .diaria-title {
   text-decoration: line-through;
@@ -822,7 +822,7 @@ textarea { resize: vertical; min-height: 70px; }
 }
 .badge-pendente   { background: rgba(124,132,148,.12); color: var(--muted); border: 1px solid rgba(124,132,148,.2); }
 .badge-andamento  { background: rgba(245,158,11,.12); color: var(--amber); border: 1px solid rgba(245,158,11,.25); }
-.badge-concluida  { background: rgba(34,197,94,.1); color: var(--green); border: 1px solid rgba(34,197,94,.2); }
+.badge-concluida  { background: color-mix(in srgb, var(--green) 10%, transparent); color: var(--green); border: 1px solid color-mix(in srgb, var(--green) 20%, transparent); }
 
 .urgency-dot {
   width: 7px; height: 7px;
@@ -1199,7 +1199,7 @@ textarea { resize: vertical; min-height: 70px; }
   transition: var(--transition);
 }
 .admin-tab:hover { color: var(--white); border-color: var(--border2); }
-.admin-tab.active { background: var(--green-subtle); color: var(--green); border-color: rgba(34,197,94,.2); }
+.admin-tab.active { background: var(--green-subtle); color: var(--green); border-color: color-mix(in srgb, var(--green) 20%, transparent); }
 
 .admin-body {
   flex: 1;

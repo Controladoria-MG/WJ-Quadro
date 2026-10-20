@@ -207,8 +207,14 @@ def init_db():
 
             # Migração para equipes: na primeira vez, tudo o que já existia
             # vira a equipe inicial, com todos os usuários atuais como membros.
-            cur.execute("SELECT COUNT(*) as c FROM equipes")
-            if cur.fetchone()["c"] == 0:
+            # Num banco novo (sem usuários nem tarefas) não há o que migrar,
+            # então nenhuma equipe é criada.
+            cur.execute("""
+                SELECT (SELECT COUNT(*) FROM equipes) AS equipes,
+                       (SELECT COUNT(*) FROM usuarios) + (SELECT COUNT(*) FROM tarefas) AS legado
+            """)
+            contagem = cur.fetchone()
+            if contagem["equipes"] == 0 and contagem["legado"] > 0:
                 cur.execute(
                     "INSERT INTO equipes (nome, criado_em) VALUES (%s, %s) RETURNING id",
                     (EQUIPE_INICIAL, agora_iso())
@@ -221,6 +227,17 @@ def init_db():
                 """, (equipe_id,))
                 cur.execute("UPDATE tarefas SET equipe_id = %s WHERE equipe_id IS NULL", (equipe_id,))
                 conn.commit()
+
+            # Versões anteriores criavam a equipe inicial vazia também em banco
+            # novo. Remove essa sobra: sem membros e sem tarefas. Uma equipe
+            # criada por alguém sempre tem ao menos quem criou como membro.
+            cur.execute("""
+                DELETE FROM equipes e
+                WHERE e.nome = %s
+                  AND NOT EXISTS (SELECT 1 FROM equipe_membros m WHERE m.equipe_id = e.id)
+                  AND NOT EXISTS (SELECT 1 FROM tarefas t WHERE t.equipe_id = e.id)
+            """, (EQUIPE_INICIAL,))
+            conn.commit()
 
             # Equipes sem colunas: as que já tinham tarefas ganham as colunas
             # antigas (uma por tipo de prazo), as demais o layout padrão.
