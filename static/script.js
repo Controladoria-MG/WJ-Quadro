@@ -15,7 +15,7 @@ function applyAccent(name) {
 document.querySelectorAll(".theme-swatch").forEach(b =>
   b.addEventListener("click", () => applyAccent(b.dataset.accent))
 );
-applyAccent(localStorage.getItem("accent") || "green");
+applyAccent(localStorage.getItem("accent") || "blue");   // padrão: azul
 
 // ── Modo claro / escuro ───────────────────────────────────
 // "auto" segue o modo do sistema operacional e acompanha se ele mudar.
@@ -3881,7 +3881,7 @@ function renderConfig() {
 
   const cores = document.createElement("div");
   cores.className = "theme-swatches config-cores";
-  const atual = document.documentElement.getAttribute("data-accent") || "green";
+  const atual = document.documentElement.getAttribute("data-accent") || "blue";
   CORES_DESTAQUE.forEach(([id, hex, nome]) => {
     const b = document.createElement("button");
     b.type = "button";
