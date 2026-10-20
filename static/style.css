@@ -1946,3 +1946,7 @@ button.dash-kpi { font: inherit; color: inherit; text-align: left; }
   .cal-chip-resp { display: none; }
   .cal-chip { font-size: 10px; padding: 2px 3px; }
 }
+
+/* A confirmação sempre abre por cima de qualquer outra janela
+   (as janelas ficam em 100; o carregando, em 200). */
+#modal-confirm-overlay { z-index: 120; }

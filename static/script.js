@@ -3521,7 +3521,8 @@ document.addEventListener("keydown", e => {
   if (e.key !== "Tab") return;
   const overlays = document.querySelectorAll(".modal-overlay:not(.hidden)");
   if (overlays.length === 0) return;
-  const overlay = overlays[overlays.length - 1]; // o último no DOM é o que fica por cima
+  // A confirmação fica por cima de todas; nas demais, a última no DOM é a de cima.
+  const overlay = !confirmOverlay.classList.contains("hidden") ? confirmOverlay : overlays[overlays.length - 1];
 
   const focusables = Array.from(
     overlay.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')
