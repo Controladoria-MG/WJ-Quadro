@@ -2201,3 +2201,9 @@ button.dash-kpi { font: inherit; color: inherit; text-align: left; }
 .urg-baixa { background: var(--vermelho-claro); }
 :root[data-tema="claro"] .badge-andamento { color: var(--vermelho-forte); }
 :root[data-tema="claro"] .badge-concluida { color: var(--vermelho-medio); }
+
+/* Barra recolhida: sem a seção de equipes (o "+" e as iniciais poluíam);
+   ficam só os ícones do menu. Para trocar de equipe, expanda a barra. */
+#app.sidebar-recolhida .nav-section-row,
+#app.sidebar-recolhida #nav-equipes { display: none; }
+#app.sidebar-recolhida .nav-section-label:not(.nav-section-row) { margin-top: 4px; }
