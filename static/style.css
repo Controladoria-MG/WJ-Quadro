@@ -1950,3 +1950,17 @@ button.dash-kpi { font: inherit; color: inherit; text-align: left; }
 /* A confirmação sempre abre por cima de qualquer outra janela
    (as janelas ficam em 100; o carregando, em 200). */
 #modal-confirm-overlay { z-index: 120; }
+
+/* ── Busca no login ───────────────────────────────────────── */
+.login-busca { width: 100%; margin-bottom: 8px; }
+.login-nenhum { color: var(--muted); font-size: 12px; padding: 10px 4px; }
+
+/* ── Boas-vindas (sem equipe) ─────────────────────────────── */
+#board > .boas-vindas, #tabela-view > .boas-vindas, #calendario-view > .boas-vindas { grid-column: 1 / -1; }
+.boas-vindas {
+  max-width: 480px; margin: 72px auto; padding: 28px 28px 24px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  text-align: center;
+}
+.boas-vindas h2 { font-family: var(--font-display); font-size: 18px; margin-bottom: 8px; }
+.boas-vindas p { color: var(--muted); font-size: 13px; line-height: 1.6; margin-bottom: 18px; }

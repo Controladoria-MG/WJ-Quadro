@@ -310,18 +310,22 @@ function showLoading(on) {
 
 // ── Avatar (foto de perfil) ───────────────────────────────
 // u.fotoPerfil é uma data URL (base64) opcional; sem ela, cai nas iniciais em u.avatar.
+function fotoSegura(foto) {
+  return typeof foto === "string" && /^data:image\/(png|jpe?g|gif|webp);base64,[A-Za-z0-9+/=]+$/.test(foto) ? foto : null;
+}
+
 function avatarHTML(u, extraClass = "") {
   const cls = "avatar" + (extraClass ? " " + extraClass : "");
-  if (u && u.fotoPerfil) {
-    return `<div class="${cls}"><img src="${u.fotoPerfil}" alt=""></div>`;
+  const foto = u && fotoSegura(u.fotoPerfil);
+  if (foto) {
+    return `<div class="${cls}"><img src="${foto}" alt=""></div>`;
   }
-  return `<div class="${cls}">${u ? (u.avatar || "") : ""}</div>`;
+  return `<div class="${cls}">${u ? escapeHTML(u.avatar || "") : ""}</div>`;
 }
 
 function setAvatarEl(el, u) {
-  el.innerHTML = u && u.fotoPerfil
-    ? `<img src="${u.fotoPerfil}" alt="">`
-    : (u ? (u.avatar || "") : "");
+  const foto = u && fotoSegura(u.fotoPerfil);
+  el.innerHTML = foto ? `<img src="${foto}" alt="">` : (u ? escapeHTML(u.avatar || "") : "");
 }
 
 // Redimensiona a imagem escolhida no cliente antes de mandar como base64,
@@ -356,15 +360,23 @@ function resizeImageToBase64(file, maxSize = 160, quality = 0.82) {
 function renderLoginUsers() {
   const list = document.getElementById("login-user-list");
   list.innerHTML = "";
-  state.users.forEach(u => {
+  const busca = document.getElementById("login-busca");
+  busca.classList.toggle("hidden", state.users.length < 8);   // só vale a pena com muita gente
+  const termo = busca.value.trim().toLowerCase();
+  const visiveis = state.users.filter(u => !termo
+    || u.nome.toLowerCase().includes(termo) || (u.cargo || "").toLowerCase().includes(termo));
+  if (visiveis.length === 0) {
+    list.innerHTML = `<div class="login-nenhum">Ninguém encontrado com esse nome.</div>`;
+  }
+  visiveis.forEach(u => {
     const el = document.createElement("div");
     el.className = "user-option";
     el.dataset.id = u.id;
     el.innerHTML = `
       ${avatarHTML(u)}
       <div class="user-option-info">
-        <strong>${u.nome}</strong>
-        <span>${u.cargo}</span>
+        <strong>${escapeHTML(u.nome)}</strong>
+        <span>${escapeHTML(u.cargo || "")}</span>
       </div>`;
     el.addEventListener("click", () => selectUser(el, u.id));
     list.appendChild(el);
@@ -377,6 +389,17 @@ function selectUser(el, id) {
   document.getElementById("btn-enter").disabled = false;
   document.getElementById("btn-enter").dataset.userId = id;
 }
+
+document.getElementById("login-busca").addEventListener("input", () => {
+  renderLoginUsers();
+  document.getElementById("btn-enter").disabled = true;
+});
+document.getElementById("login-busca").addEventListener("keydown", e => {
+  // Enter com um único resultado já seleciona a pessoa.
+  if (e.key !== "Enter") return;
+  const opcoes = document.querySelectorAll("#login-user-list .user-option");
+  if (opcoes.length === 1) opcoes[0].click();
+});
 
 document.getElementById("btn-enter").addEventListener("click", () => {
   const id = parseInt(document.getElementById("btn-enter").dataset.userId);
@@ -443,7 +466,7 @@ function checkAvisoNovasTarefas() {
   pendentes.forEach(t => {
     const autor = state.users.find(u => u.id === t.criadoPor);
     const li = document.createElement("li");
-    li.innerHTML = `<strong>${t.nome}</strong><span>Criada por ${autor ? autor.nome : "alguém"}</span>`;
+    li.innerHTML = `<strong>${escapeHTML(t.nome)}</strong><span>Criada por ${autor ? E(autor.nome) : "alguém"}</span>`;
     list.appendChild(li);
   });
 
@@ -589,7 +612,7 @@ function renderFiltroUsuarios() {
   membrosDaEquipe(state.equipeAtual).forEach(u => {
     const btn = document.createElement("button");
     btn.className = "filtro-btn" + (state.filtroUsuario === u.id ? " active" : "");
-    btn.innerHTML = `${u.avatar} ${u.nome}`;
+    btn.innerHTML = `${escapeHTML(u.avatar || "")} ${escapeHTML(u.nome)}`;
     btn.onclick = () => {
       state.filtroUsuario = u.id;
       renderFiltroUsuarios();
@@ -668,7 +691,26 @@ async function moverTarefa(t, coluna) {
   }
 }
 
+// Quem ainda não participa de nenhuma equipe vê uma orientação, não um quadro vazio.
+function boasVindas() {
+  const el = document.createElement("div");
+  el.className = "boas-vindas";
+  el.innerHTML = `
+    <h2>Bem-vindo ao Portal de Tarefas</h2>
+    <p>Você ainda não faz parte de nenhuma equipe. Peça a quem administra a sua equipe para te adicionar, ou crie um grupo com as pessoas com quem você trabalha.</p>
+    <button type="button" class="btn btn-primary">Criar um grupo</button>`;
+  el.querySelector("button").onclick = openGrupoModal;
+  return el;
+}
+
 function renderBoard() {
+  if (!equipeAtual()) {
+    const area = areaPrincipal();
+    area.innerHTML = "";
+    area.appendChild(boasVindas());
+    renderNavEquipes();
+    return;
+  }
   if (state.visao === "tabela" || state.visao === "calendario") {
     state.visao === "tabela" ? renderTabela() : renderCalendario();
     renderNavEquipes();
@@ -839,7 +881,7 @@ function buildDiariaCard(t) {
       <button class="diaria-checkbox ${feita ? "checked" : ""}" data-id="${t.id}" title="${feita ? "Desmarcar" : "Marcar como feita hoje"}">
         ${feita ? `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>` : ""}
       </button>
-      <div class="card-title diaria-title">${t.nome}</div>
+      <div class="card-title diaria-title">${escapeHTML(t.nome)}</div>
       <button class="card-delete-btn" title="Excluir tarefa diária">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <polyline points="3 6 5 6 21 6"/>
@@ -855,7 +897,7 @@ function buildDiariaCard(t) {
         ? `<span class="badge badge-concluida">Feita hoje</span>`
         : `<span class="badge badge-pendente">Pendente</span>`}
       ${resp
-        ? `<div class="card-resp">${avatarHTML(resp, "sm")}<span>${resp.nome}</span></div>`
+        ? `<div class="card-resp">${avatarHTML(resp, "sm")}<span>${escapeHTML(resp.nome)}</span></div>`
         : `<span style="color:var(--muted2)">Sem resp.</span>`}
     </div>
     ${feita ? `<div class="diaria-reset-hint">↻ Será resetada amanhã</div>` : ""}`;
@@ -916,7 +958,7 @@ function buildCard(t) {
 
   el.innerHTML = `
     <div class="card-title-row">
-      <div class="card-title">${t.nome}</div>
+      <div class="card-title">${escapeHTML(t.nome)}</div>
       <button class="card-delete-btn" title="Excluir tarefa">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <polyline points="3 6 5 6 21 6"/>
@@ -939,10 +981,10 @@ function buildCard(t) {
       </div>` : ""}
     <div class="card-footer">
       <span class="card-date">${t.comentarios ? `<span class="card-comentarios" title="Comentários">${ICONE_COMENTARIO}${t.comentarios}</span>` : ""}${resp ? "" : "Sem resp."}</span>
-      ${resp ? `<div class="card-resp">${avatarHTML(resp, "sm")}<span>${resp.nome}</span></div>` : ""}
+      ${resp ? `<div class="card-resp">${avatarHTML(resp, "sm")}<span>${escapeHTML(resp.nome)}</span></div>` : ""}
     </div>
     ${t.concluida && t.concluidoEm ? `
-      <div class="card-concluido-info">Concluída em ${formatDate(t.concluidoEm)}${concluidor ? ` por ${concluidor.nome}` : ""}</div>
+      <div class="card-concluido-info">Concluída em ${formatDate(t.concluidoEm)}${concluidor ? ` por ${escapeHTML(concluidor.nome)}` : ""}</div>
     ` : ""}`;
 
   el.querySelector(".card-delete-btn").addEventListener("click", async e => {
@@ -1053,7 +1095,7 @@ function renderFiltrosConcluidas() {
     renderConcluded();
   });
   membrosDaEquipe(state.equipeAtual).forEach(u => {
-    addBtn(groupUser, `${u.avatar} ${u.nome}`, state.filtroConcluidoUsuario === u.id, () => {
+    addBtn(groupUser, `${escapeHTML(u.avatar || "")} ${escapeHTML(u.nome)}`, state.filtroConcluidoUsuario === u.id, () => {
       state.filtroConcluidoUsuario = u.id;
       renderConcluded();
     });
@@ -1128,7 +1170,7 @@ function renderAdminTarefas() {
     tr.innerHTML = `
       <td>${t.id}</td>
       <td>${eq ? eq.nome : "—"}</td>
-      <td class="admin-nome-cell">${t.nome}</td>
+      <td class="admin-nome-cell">${escapeHTML(t.nome)}</td>
       <td>${t.prazo}</td>
       <td>${labelStatus(t.status)}</td>
       <td>${labelUrgencia(t.urgencia)}</td>
@@ -1153,9 +1195,9 @@ function renderAdminUsuarios() {
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${u.id}</td>
-      <td class="admin-nome-cell">${u.nome}</td>
-      <td>${u.cargo || "—"}</td>
-      <td>${u.avatar || "—"}</td>
+      <td class="admin-nome-cell">${escapeHTML(u.nome)}</td>
+      <td>${escapeHTML(u.cargo || "—")}</td>
+      <td>${escapeHTML(u.avatar || "—")}</td>
       <td>${u.isAdmin ? "Sim" : "Não"}</td>
       <td>
         <div class="admin-row-actions">
@@ -1468,7 +1510,7 @@ function renderEtapasTemp() {
     const el = document.createElement("div");
     el.className = "etapa-item";
     el.innerHTML = `
-      <span>${e.texto}</span>
+      <span>${escapeHTML(e.texto)}</span>
       <button class="btn-remove-etapa" data-i="${i}" title="Remover">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
           <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
@@ -1594,7 +1636,7 @@ function openDetail(id) {
         <div class="check-box">
           ${etapa.concluida ? `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>` : ""}
         </div>
-        <span class="check-label">${etapa.texto}</span>
+        <span class="check-label">${escapeHTML(etapa.texto)}</span>
         <div class="check-actions">
           <button class="btn-edit-etapa" title="Editar etapa">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
@@ -2439,7 +2481,7 @@ const ICONE_COMENTARIO = `<svg width="12" height="12" viewBox="0 0 24 24" fill="
 
 function opcoesHTML(pares, atual) {
   return pares.map(([v, rotulo]) =>
-    `<option value="${v}" ${String(v) === String(atual ?? "") ? "selected" : ""}>${rotulo}</option>`
+    `<option value="${escapeHTML(v)}" ${String(v) === String(atual ?? "") ? "selected" : ""}>${escapeHTML(rotulo)}</option>`
   ).join("");
 }
 

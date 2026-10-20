@@ -14,13 +14,14 @@ Uma coluna marcada como "finaliza" conclui a tarefa que entra nela.
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime, timezone
 import os
 import json
+import hashlib
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from dotenv import load_dotenv
@@ -307,6 +308,16 @@ def criar_colunas_padrao(cur, equipe_id: int):
             "INSERT INTO colunas (equipe_id, nome, cor, ordem, finaliza) VALUES (%s,%s,%s,%s,%s)",
             (equipe_id, nome, cor, ordem, finaliza)
         )
+
+def resposta_json(request: Request, dados) -> Response:
+    """JSON com ETag. A atualização automática pede a cada 20s; quando nada
+    mudou, o navegador recebe 304 (sem corpo) e reaproveita o que já tem."""
+    corpo = json.dumps(dados, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    etag = '"' + hashlib.md5(corpo).hexdigest() + '"'
+    cabecalhos = {"ETag": etag, "Cache-Control": "private, no-cache"}
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=cabecalhos)
+    return Response(corpo, media_type="application/json", headers=cabecalhos)
 
 def agora_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -621,7 +632,7 @@ def listar_tarefas(request: Request):
                     JOIN equipe_membros m ON m.equipe_id = t.equipe_id AND m.usuario_id = %s
                     ORDER BY t.id
                 """, (usuario["id"],))
-            return [row_to_tarefa(r) for r in cur.fetchall()]
+            return resposta_json(request, [row_to_tarefa(r) for r in cur.fetchall()])
 
 
 @app.post("/api/tarefas", status_code=201)
@@ -860,14 +871,14 @@ def listar_notificacoes(request: Request):
                 SELECT * FROM notificacoes WHERE usuario_id = %s
                 ORDER BY id DESC LIMIT 50
             """, (usuario["id"],))
-            return {
+            return resposta_json(request, {
                 "naoLidas": nao_lidas,
                 "itens": [{
                     "id": n["id"], "autorId": n["autor_id"], "texto": n["texto"],
                     "tarefaId": n["tarefa_id"], "equipeId": n["equipe_id"],
                     "lida": n["lida"], "criadoEm": n["criado_em"],
                 } for n in cur.fetchall()],
-            }
+            })
 
 
 @app.post("/api/notificacoes/lidas")
@@ -928,9 +939,9 @@ def listar_equipes(request: Request):
         with conn.cursor() as cur:
             usuario = exigir_usuario(request, cur)
             if usuario["is_admin"]:
-                return equipes_com_membros(cur)
+                return resposta_json(request, equipes_com_membros(cur))
             cur.execute("SELECT equipe_id FROM equipe_membros WHERE usuario_id = %s", (usuario["id"],))
-            return equipes_com_membros(cur, [r["equipe_id"] for r in cur.fetchall()])
+            return resposta_json(request, equipes_com_membros(cur, [r["equipe_id"] for r in cur.fetchall()]))
 
 
 @app.post("/api/equipes", status_code=201)
@@ -1144,12 +1155,12 @@ def ordenar_colunas(equipe_id: int, ordem: OrdemColunas, request: Request):
 # ══════════════════════════════════════════════════════════
 
 @app.get("/api/usuarios")
-def listar_usuarios():
+def listar_usuarios(request: Request):
     # Aberta: a tela de login (modo simples) precisa da lista antes de haver sessão.
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT * FROM usuarios ORDER BY nome")
-            return [row_to_usuario(r) for r in cur.fetchall()]
+            return resposta_json(request, [row_to_usuario(r) for r in cur.fetchall()])
 
 
 @app.post("/api/usuarios", status_code=201)
