@@ -2362,9 +2362,10 @@ window.addEventListener("resize", fecharMenuColuna);
 function novaColunaNoQuadro(eq) {
   const el = document.createElement("div");
   el.className = "column-nova";
-  el.innerHTML = `<button type="button">+ Nova coluna</button>`;
+  el.innerHTML = `<button type="button" title="Nova coluna" aria-label="Nova coluna">+</button>`;
   const botao = el.querySelector("button");
   botao.onclick = () => {
+    el.classList.add("criando");
     el.innerHTML = `<input type="text" class="coluna-nome-input" placeholder="Nome da coluna" />`;
     const input = el.querySelector("input");
     input.focus();
