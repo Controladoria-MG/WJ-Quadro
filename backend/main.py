@@ -1231,4 +1231,6 @@ app.mount("/data",   StaticFiles(directory=os.path.join(BASE_DIR, "data")),   na
 
 @app.get("/")
 def index():
-    return FileResponse(os.path.join(BASE_DIR, "index.html"))
+    # no-cache: o navegador sempre confere se há versão nova da página
+    # (sem isso ele podia reaproveitar uma cópia antiga por horas).
+    return FileResponse(os.path.join(BASE_DIR, "index.html"), headers={"Cache-Control": "no-cache"})
