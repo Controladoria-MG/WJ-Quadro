@@ -43,6 +43,7 @@ DATABASE_URL=postgresql://... uvicorn backend.main:app --reload --port 8000
 - **Cores:** destaque padrão azul. Status e urgência usam a **rampa vermelha da MG** (`--vermelho-claro/medio/forte/profundo`), validada para fundo escuro e claro. Nunca verde ou âmbar para status.
 - **Interface 100% em português**, sem "cara de IA" (sem emojis nem notas explicativas) e com plural concordando.
 - O nome do sistema é **"Quadro"**, para não confundir com o "Portal de Tarefas" da Central de Relatórios.
+- **Autoria:** criado e mantido por Willian Arruda e Juan Rodrigues. A logo deles (símbolo SVG `#logo-jw` no `index.html`, sem verde: corpo em `currentColor`, faixas na cor de destaque) aparece só no rodapé da entrada e em Configurações > Sobre. A marca da barra lateral continua a do Quadro.
 
 ## Armadilhas (não fazer)
 

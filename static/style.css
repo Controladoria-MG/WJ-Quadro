@@ -2317,3 +2317,17 @@ button.dash-kpi { font: inherit; color: inherit; text-align: left; }
 
 /* Botão de carregar as concluídas arquivadas, no fim da lista */
 .concluidas-arquivadas { grid-column: 1 / -1; justify-self: center; margin-top: 8px; }
+
+/* ── Logo e créditos (Willian e Juan) ─────────────────────── */
+.logo-jw { display: block; color: var(--white); aspect-ratio: 320 / 400; }
+.logo-faixa { fill: var(--green); }
+#login-screen { flex-direction: column; gap: 18px; padding: 24px 16px; }
+.login-creditos {
+  position: relative; z-index: 1;
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px; color: var(--muted);
+}
+.login-creditos .logo-jw { height: 28px; width: auto; color: var(--muted); }
+.sobre-quadro { display: flex; align-items: center; gap: 16px; margin-top: 12px; }
+.sobre-quadro .logo-jw { height: 64px; width: auto; flex-shrink: 0; }
+.sobre-quadro p { color: var(--muted); font-size: 13px; }

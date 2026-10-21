@@ -4,9 +4,29 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Quadro</title>
-  <link rel="stylesheet" href="static/style.css?v=2026-10-21b" />
+  <link rel="stylesheet" href="static/style.css?v=2026-10-21e" />
 </head>
 <body>
+
+<!-- Logo de Willian e Juan, usada no rodapé da entrada e em Configurações > Sobre.
+     O corpo segue a cor do texto (currentColor) e as faixas, a cor de destaque. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <clipPath id="logo-jw-corte"><polygon points="150,100 214,100 214,205 330,205 330,336 150,336"/></clipPath>
+  </defs>
+  <symbol id="logo-jw" viewBox="0 0 320 400">
+    <path fill="currentColor" d="M35 18H85V46H130V18H180V46H225V18H275V80Q155 68 35 80Z"/>
+    <path class="logo-faixa" d="M60 89Q156 77 252 89V101Q156 89 60 101Z"/>
+    <path fill="currentColor" d="M60 107Q156 95 252 107V122Q156 110 60 122Z"/>
+    <path fill="currentColor" d="M102 112H148V292Q148 336 106 336H70Q26 336 26 294V250H62V288Q62 298 74 298H90Q102 298 102 288Z"/>
+    <rect fill="currentColor" x="164" y="112" width="46" height="224"/>
+    <polyline clip-path="url(#logo-jw-corte)" fill="none" stroke="currentColor" stroke-width="30" stroke-miterlimit="10"
+              points="190,336 236,254 262,336 302,190"/>
+    <rect fill="currentColor" x="56" y="338" width="204" height="14"/>
+    <path class="logo-faixa" d="M46 357H270V367H46Z"/>
+    <path fill="currentColor" d="M40 372H276L288 394H28Z"/>
+  </symbol>
+</svg>
 
 <!-- ══════════════════════════════════════════════════════
      LOGIN SCREEN
@@ -54,6 +74,11 @@
     </div>
 
   </div>
+
+  <footer class="login-creditos">
+    <svg class="logo-jw" aria-hidden="true"><use href="#logo-jw"/></svg>
+    <span>Desenvolvido por Willian Arruda e Juan Rodrigues</span>
+  </footer>
 </div>
 
 <!-- ══════════════════════════════════════════════════════
@@ -849,20 +874,20 @@
 </div>
 
 <!-- A ordem importa: cada arquivo pode usar o que os anteriores declaram. -->
-<script src="static/js/base.js?v=2026-10-21b"></script>
-<script src="static/js/equipes.js?v=2026-10-21b"></script>
-<script src="static/js/login.js?v=2026-10-21b"></script>
-<script src="static/js/quadro.js?v=2026-10-21b"></script>
-<script src="static/js/concluidas.js?v=2026-10-21b"></script>
-<script src="static/js/gerenciador.js?v=2026-10-21b"></script>
-<script src="static/js/tarefa.js?v=2026-10-21b"></script>
-<script src="static/js/grupos.js?v=2026-10-21b"></script>
-<script src="static/js/tabela.js?v=2026-10-21b"></script>
-<script src="static/js/atividade.js?v=2026-10-21b"></script>
-<script src="static/js/dashboard.js?v=2026-10-21b"></script>
-<script src="static/js/calendario.js?v=2026-10-21b"></script>
-<script src="static/js/minhas.js?v=2026-10-21b"></script>
-<script src="static/js/configuracoes.js?v=2026-10-21b"></script>
-<script src="static/js/geral.js?v=2026-10-21b"></script>
+<script src="static/js/base.js?v=2026-10-21e"></script>
+<script src="static/js/equipes.js?v=2026-10-21e"></script>
+<script src="static/js/login.js?v=2026-10-21e"></script>
+<script src="static/js/quadro.js?v=2026-10-21e"></script>
+<script src="static/js/concluidas.js?v=2026-10-21e"></script>
+<script src="static/js/gerenciador.js?v=2026-10-21e"></script>
+<script src="static/js/tarefa.js?v=2026-10-21e"></script>
+<script src="static/js/grupos.js?v=2026-10-21e"></script>
+<script src="static/js/tabela.js?v=2026-10-21e"></script>
+<script src="static/js/atividade.js?v=2026-10-21e"></script>
+<script src="static/js/dashboard.js?v=2026-10-21e"></script>
+<script src="static/js/calendario.js?v=2026-10-21e"></script>
+<script src="static/js/minhas.js?v=2026-10-21e"></script>
+<script src="static/js/configuracoes.js?v=2026-10-21e"></script>
+<script src="static/js/geral.js?v=2026-10-21e"></script>
 </body>
 </html>

@@ -218,6 +218,16 @@ function renderConfig() {
     admin.querySelector(".config-conteudo").appendChild(b);
     body.appendChild(admin);
   }
+
+  // ── Sobre
+  const sobre = cartaoConfig("Sobre o Quadro", "");
+  sobre.querySelector(".config-desc").remove();
+  sobre.querySelector(".config-conteudo").innerHTML = `
+    <div class="sobre-quadro">
+      <svg class="logo-jw" aria-hidden="true"><use href="#logo-jw"/></svg>
+      <p>Desenvolvido por Willian Arruda e Juan Rodrigues</p>
+    </div>`;
+  body.appendChild(sobre);
 }
 
 document.getElementById("nav-config").addEventListener("click", abrirConfig);
