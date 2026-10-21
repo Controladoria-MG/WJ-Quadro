@@ -13,6 +13,8 @@ Branch local `multi-equipes` = `main` do repositório `Controladoria-MG/WJ-Quadr
 - "Desfazer" depois de excluir ou concluir (a exclusão só vai ao servidor depois de 6 s, ou ao sair da página).
 - Etapas gravadas uma a uma no servidor (rotas `/api/tarefas/{id}/etapas`), sem sobrescrever quem edita ao mesmo tempo.
 - Colunas recolhíveis e cards compactos (Configurações), guardados no navegador.
+- Concluídas há mais de 180 dias ficam arquivadas: não carregam no quadro e aparecem sob pedido na tela de Concluídas.
+- O front-end foi dividido de `static/script.js` para `static/js/*.js` (um arquivo por área, mesma ordem de antes).
 - Minhas tarefas, Dashboard (indicadores clicáveis, filtros por equipe, pessoa e período) e notificações (sino).
 - Configurações: modo claro, escuro ou automático, cor de destaque (6 cores, padrão azul), barra lateral recolhível, perfil e membros.
 - Atualização automática leve (ETag), datas no fuso de Brasília, gravação por campo e proteção contra XSS.
@@ -23,7 +25,7 @@ Branch local `multi-equipes` = `main` do repositório `Controladoria-MG/WJ-Quadr
 
 - Nada pela metade no código.
 - O serviço WJ-Quadro no Render está fora de projeto. Falta decidir se ele vai para "My project".
-- O deploy automático foi ligado em 21/10/2026 (app do Render instalado na Controladoria-MG só para o WJ-Quadro). Confirmar no primeiro push.
+- O deploy automático funciona desde 21/10/2026 (app do Render instalado na Controladoria-MG só para o WJ-Quadro).
 
 ## Problemas em aberto
 
@@ -34,5 +36,4 @@ Branch local `multi-equipes` = `main` do repositório `Controladoria-MG/WJ-Quadr
 
 1. Decidir a visibilidade do repositório.
 2. Exportar para Excel (adiado pelo usuário em 21/10/2026). Recorrência e modelos foram descartados.
-3. Estrutura: arquivar concluídas antigas, dividir `static/script.js` (backup descartado).
-4. Entrega ao TI (quando decidido): vínculo com o usuário do MG Controle em `auth.py`, desligar a tela de escolher o nome, "Sair" levando ao MG Controle e um documento técnico.
+3. Entrega ao TI (quando decidido): vínculo com o usuário do MG Controle em `auth.py`, desligar a tela de escolher o nome, "Sair" levando ao MG Controle e um documento técnico.

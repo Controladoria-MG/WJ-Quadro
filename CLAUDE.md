@@ -11,7 +11,7 @@ Sistema de tarefas em kanban para várias equipes e grupos da MG (estilo Monday)
 | `backend/main.py` | Toda a API, a criação e migração do banco (`init_db`), as permissões, o histórico e as notificações. |
 | `backend/auth.py` | `usuario_atual_id(request)`: **único** ponto que descobre quem está logado. Hoje lê o cookie `currentUserId`; o TI vai trocar pela sessão do MG Controle. |
 | `index.html` | Todas as telas e janelas (modais). |
-| `static/script.js` | Toda a lógica da tela, organizada em seções `// ── Nome ──`. |
+| `static/js/*.js` | A lógica da tela, um arquivo por área (base, equipes, login, quadro, concluidas, gerenciador, tarefa, grupos, tabela, atividade, dashboard, calendario, minhas, configuracoes, geral). São scripts comuns que compartilham o escopo global, carregados **nesta ordem** pelo `index.html`. Dentro de cada um, seções `// ── Nome ──`. |
 | `static/style.css` | Estilos. Os temas ficam em `:root[data-accent=…]` e `:root[data-tema="claro"]`. |
 | `render.yaml` | Blueprint do Render (não é usado pelo serviço atual, que foi criado à mão). |
 | `data/*.json` | Carga inicial vazia; só é usada se o banco estiver vazio. |
@@ -23,10 +23,11 @@ pip install -r backend/requirements.txt
 DATABASE_URL=postgresql://... uvicorn backend.main:app --reload --port 8000
 ```
 
-- **Não há build.** Ao mudar CSS ou JS, atualize o `?v=AAAA-MM-DD…` dos dois links no `index.html`, senão o navegador usa o arquivo antigo.
+- **Não há build.** Ao mudar CSS ou JS, atualize o `?v=AAAA-MM-DD…` de todos os links (`style.css` e cada `static/js/*.js`) no `index.html`, senão o navegador usa o arquivo antigo.
+- **Ordem dos scripts:** código que roda no carregamento (fora de funções) só pode usar o que já foi declarado nos arquivos anteriores. Para ligar um evento a uma função de um arquivo posterior, use `() => funcao()`, não `funcao` direto. Novos arquivos entram na lista do `index.html`.
 - **Não há testes automatizados.** A validação é feita na API (com `urllib` ou `curl`) e na tela, contra um Postgres de teste.
 - As tabelas são criadas e migradas sozinhas na subida (`init_db`, idempotente). Não existe script de migração separado.
-- **Deploy:** Render, serviço WJ-Quadro (https://wj-quadro.onrender.com), a partir do `main` do repositório `Controladoria-MG/WJ-Quadro`. O `DATABASE_URL` vem do grupo de ambiente `wj-quadro-banco`. O auto-deploy **não** dispara (repositório público sem Blueprint): use Manual Deploy ou o Deploy Hook.
+- **Deploy:** Render, serviço WJ-Quadro (https://wj-quadro.onrender.com), workspace sistema-checklist, a partir do `main` do repositório `Controladoria-MG/WJ-Quadro`. O `DATABASE_URL` vem do grupo de ambiente `wj-quadro-banco`. O deploy é **automático** a cada push no `main` (app do Render instalado na organização, só para esse repositório).
 
 ## Modelo e decisões
 
@@ -36,6 +37,7 @@ DATABASE_URL=postgresql://... uvicorn backend.main:app --reload --port 8000
 - **Diárias:** `prazo = "diaria"`, `diaria_feita_em` com a data local de Brasília (`todayStr` usa `America/Sao_Paulo`). Ficam fora das contagens de "em aberto" e "atrasadas".
 - **Edição grava só o campo alterado** (PATCH). O PUT completo existe só no Gerenciador de Base.
 - **Histórico e notificações são gerados no back-end** (`descrever_mudancas`, `registrar_e_notificar`, `notificar`). Edições de texto são agrupadas por 10 minutos. Nunca notificar quem fez a ação.
+- **Arquivadas:** concluídas há mais de 180 dias (`DIAS_ATE_ARQUIVAR`) não vêm no `GET /api/tarefas`; só com `?arquivadas=true`, pelo botão no fim da tela de Concluídas. 180 porque o Dashboard compara até 90 dias com os 90 anteriores.
 - **Atualização automática** a cada 20 s (`atualizarEmSegundoPlano`). Ela não redesenha a tela enquanto o usuário está ocupado (`usuarioOcupado`). Os GETs usam ETag (`resposta_json`), e o `index.html` vai com `Cache-Control: no-cache`.
 - **Configurações** concentram o que é do sistema (aparência, perfil, membros, Gerenciador de Base). A tela principal fica limpa.
 - **Cores:** destaque padrão azul. Status e urgência usam a **rampa vermelha da MG** (`--vermelho-claro/medio/forte/profundo`), validada para fundo escuro e claro. Nunca verde ou âmbar para status.

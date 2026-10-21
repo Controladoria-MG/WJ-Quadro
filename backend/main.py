@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import os
 import json
 import re
@@ -672,20 +672,29 @@ def startup():
 # ROTAS — TAREFAS
 # ══════════════════════════════════════════════════════════
 
+# Concluídas há mais que isso ficam arquivadas: não vêm na lista normal
+# (que a tela recarrega a cada 20 s), só com ?arquivadas=true. O Dashboard
+# compara até 90 dias com os 90 anteriores, por isso 180.
+DIAS_ATE_ARQUIVAR = 180
+
 @app.get("/api/tarefas")
-def listar_tarefas(request: Request):
+def listar_tarefas(request: Request, arquivadas: bool = False):
+    corte = (datetime.now(timezone.utc) - timedelta(days=DIAS_ATE_ARQUIVAR)).strftime("%Y-%m-%d")
+    arquivada = "(t.concluida AND t.concluido_em IS NOT NULL AND LEFT(t.concluido_em, 10) < %s)"
+    filtro = arquivada if arquivadas else f"NOT {arquivada}"
     with get_conn() as conn:
         with conn.cursor() as cur:
             usuario = exigir_usuario(request, cur)
             contagem = "(SELECT COUNT(*) FROM comentarios c WHERE c.tarefa_id = t.id) AS n_comentarios"
             if usuario["is_admin"]:
-                cur.execute(f"SELECT t.*, {contagem} FROM tarefas t ORDER BY t.id")
+                cur.execute(f"SELECT t.*, {contagem} FROM tarefas t WHERE {filtro} ORDER BY t.id", (corte,))
             else:
                 cur.execute(f"""
                     SELECT t.*, {contagem} FROM tarefas t
                     JOIN equipe_membros m ON m.equipe_id = t.equipe_id AND m.usuario_id = %s
+                    WHERE {filtro}
                     ORDER BY t.id
-                """, (usuario["id"],))
+                """, (usuario["id"], corte))
             return resposta_json(request, [row_to_tarefa(r) for r in cur.fetchall()])
 
 
