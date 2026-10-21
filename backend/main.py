@@ -308,6 +308,18 @@ def init_db():
             cur.execute("CREATE INDEX IF NOT EXISTS notificacoes_usuario_idx ON notificacoes (usuario_id, lida)")
             conn.commit()
 
+            # Radar Contábil (portal à parte, no GitHub Pages): etapas de
+            # fechamento marcadas por grupo de clientes. Uma linha por etapa feita.
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS radar_contabil_etapas (
+                    grupo     TEXT    NOT NULL,
+                    etapa     INTEGER NOT NULL,
+                    feito_em  TEXT    NOT NULL,
+                    PRIMARY KEY (grupo, etapa)
+                )
+            """)
+            conn.commit()
+
 def criar_colunas_padrao(cur, equipe_id: int):
     for ordem, (nome, cor, finaliza) in enumerate(COLUNAS_PADRAO):
         cur.execute(
@@ -1397,6 +1409,55 @@ def deletar_usuario(usuario_id: int, request: Request):
             if not cur.fetchone():
                 raise HTTPException(status_code=404, detail="Usuário não encontrado")
     return None
+
+# ══════════════════════════════════════════════════════════
+# ROTAS — RADAR CONTÁBIL
+# ══════════════════════════════════════════════════════════
+# O Radar Contábil é um portal estático (Controladoria-MG/Radar-Contabil, no
+# GitHub Pages) e usa este servidor só para guardar as marcações, para que
+# todos vejam o mesmo progresso. Não tem login: qualquer pessoa com o portal
+# marca e desmarca. A chave do grupo é montada pelo portal ("g:<grupo>" ou
+# "c:<id do cliente>"); a etapa é a posição dela na lista.
+
+ETAPAS_RADAR_MAX = 50
+
+class MarcacaoRadar(BaseModel):
+    grupo: str
+    etapa: int
+    feito: bool
+
+@app.get("/api/radar-contabil/progresso")
+def radar_progresso(request: Request):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT grupo, etapa, feito_em FROM radar_contabil_etapas ORDER BY grupo, etapa")
+            grupos = {}
+            for row in cur.fetchall():
+                grupos.setdefault(row["grupo"], {"etapas": {}})["etapas"][str(row["etapa"])] = row["feito_em"]
+    return resposta_json(request, {"grupos": grupos})
+
+@app.put("/api/radar-contabil/marcacao")
+def radar_marcar(m: MarcacaoRadar):
+    grupo = m.grupo.strip()
+    if not grupo or len(grupo) > 200:
+        raise HTTPException(status_code=400, detail="Grupo inválido")
+    if m.etapa < 0 or m.etapa >= ETAPAS_RADAR_MAX:
+        raise HTTPException(status_code=400, detail="Etapa inválida")
+    feito_em = None
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            if m.feito:
+                # Se já estava marcada, mantém a data original.
+                cur.execute("""
+                    INSERT INTO radar_contabil_etapas (grupo, etapa, feito_em) VALUES (%s, %s, %s)
+                    ON CONFLICT (grupo, etapa) DO UPDATE SET feito_em = radar_contabil_etapas.feito_em
+                    RETURNING feito_em
+                """, (grupo, m.etapa, agora_iso()))
+                feito_em = cur.fetchone()["feito_em"]
+            else:
+                cur.execute("DELETE FROM radar_contabil_etapas WHERE grupo = %s AND etapa = %s", (grupo, m.etapa))
+            conn.commit()
+    return {"grupo": grupo, "etapa": m.etapa, "feitoEm": feito_em}
 
 # ══════════════════════════════════════════════════════════
 # SERVE O FRONTEND
