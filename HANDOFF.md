@@ -12,12 +12,13 @@ Branch local `multi-equipes` = `main` do repositório `Controladoria-MG/WJ-Quadr
 - Minhas tarefas, Dashboard (indicadores clicáveis, filtros por equipe, pessoa e período) e notificações (sino).
 - Configurações: modo claro, escuro ou automático, cor de destaque (6 cores, padrão azul), barra lateral recolhível, perfil e membros.
 - Atualização automática leve (ETag), datas no fuso de Brasília, gravação por campo e proteção contra XSS.
-- No ar em homologação: https://wj-quadro.onrender.com (versão `99e13d2`).
+- No ar em homologação: https://wj-quadro.onrender.com (serviço recriado em 21/10/2026 no workspace sistema-checklist, plano gratuito, ligado ao grupo `wj-quadro-banco`).
+- A rota `/` aceita HEAD (o monitor que mantém o Render acordado pinga com HEAD).
 
 ## Em andamento
 
 - Nada pela metade no código.
-- O serviço WJ-Quadro no Render ficou fora de projeto, em "Ungrouped Services". Falta decidir se ele vai para "My project".
+- O serviço WJ-Quadro no Render está fora de projeto. Falta decidir se ele vai para "My project".
 
 ## Problemas em aberto
 
@@ -25,8 +26,6 @@ Branch local `multi-equipes` = `main` do repositório `Controladoria-MG/WJ-Quadr
 - **O repositório `Controladoria-MG/WJ-Quadro` está público.** Confirmar se é intencional.
 - Duas pessoas editando as **etapas** da mesma tarefa ao mesmo tempo ainda se sobrescrevem (`etapas` é gravado como array inteiro).
 - O Gerenciador de Base permite deixar `status` e `concluida` contraditórios.
-- O campo Status ficou redundante nos grupos que têm coluna "Em andamento".
-- O aviso antigo "Novas tarefas para você" (ao entrar) repete o que o sino já mostra. Decidir se sai.
 - O plano grátis do Render "dorme" depois de 15 minutos sem uso (o primeiro acesso leva de 30 a 60 s).
 
 ## Próximos passos (prioridade)

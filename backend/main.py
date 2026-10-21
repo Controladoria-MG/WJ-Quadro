@@ -512,7 +512,8 @@ def descrever_mudancas(cur, atual: dict, novos: dict) -> List[tuple]:
     if mudou("responsavel"):
         nome = nome_usuario(novos["responsavel"])
         acoes.append((f"atribuiu a {nome}" if nome else "removeu o responsável", False))
-    if mudou("status") and novos["status"] != "concluida" and not mudou("concluida"):
+    # Trocar de coluna já ajusta o status; o "moveu para" basta no histórico.
+    if mudou("status") and novos["status"] != "concluida" and not mudou("concluida") and not mudou("coluna_id"):
         acoes.append((f'mudou o status para {ROTULO_STATUS.get(novos["status"], novos["status"])}', False))
     if mudou("urgencia"):
         acoes.append((f'mudou a urgência para {ROTULO_URGENCIA.get(novos["urgencia"], novos["urgencia"])}', False))
@@ -1236,7 +1237,9 @@ def deletar_usuario(usuario_id: int, request: Request):
 app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
 app.mount("/data",   StaticFiles(directory=os.path.join(BASE_DIR, "data")),   name="data")
 
-@app.get("/")
+# HEAD também: serviços de monitoramento (que mantêm o Render acordado)
+# costumam pingar com HEAD, e só GET devolvia 405.
+@app.api_route("/", methods=["GET", "HEAD"])
 def index():
     # no-cache: o navegador sempre confere se há versão nova da página
     # (sem isso ele podia reaproveitar uma cópia antiga por horas).

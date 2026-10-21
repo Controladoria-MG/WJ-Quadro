@@ -482,45 +482,7 @@ async function enterApp() {
   document.getElementById("nav-admin").classList.add("hidden");   // acessado por Configurações
   renderFiltroUsuarios();
   renderBoard();
-  checkAvisoNovasTarefas();
   carregarNotificacoes();
-}
-
-// ── Aviso de novas tarefas atribuídas ──────────────────────
-// Mostra uma única vez por tarefa: quando alguém cria/atribui uma tarefa
-// para outra pessoa, o responsável vê um aviso na próxima vez que entrar
-// no portal. Depois de confirmar ("Ciente"), aviso_confirmado vira true
-// e a tarefa não aparece mais nesse aviso.
-function checkAvisoNovasTarefas() {
-  const pendentes = state.tarefas.filter(t =>
-    t.responsavel === state.current.id &&
-    t.criadoPor && t.criadoPor !== state.current.id &&
-    !t.avisoConfirmado
-  );
-  if (pendentes.length === 0) return;
-
-  const list = document.getElementById("aviso-tarefas-list");
-  list.innerHTML = "";
-  pendentes.forEach(t => {
-    const autor = state.users.find(u => u.id === t.criadoPor);
-    const li = document.createElement("li");
-    li.innerHTML = `<strong>${escapeHTML(t.nome)}</strong><span>Criada por ${autor ? E(autor.nome) : "alguém"}</span>`;
-    list.appendChild(li);
-  });
-
-  document.getElementById("modal-aviso-overlay").classList.remove("hidden");
-
-  document.getElementById("btn-aviso-ciente").onclick = async () => {
-    document.getElementById("modal-aviso-overlay").classList.add("hidden");
-    try {
-      await Promise.all(pendentes.map(t => {
-        t.avisoConfirmado = true;
-        return api.patchTarefa(t.id, { avisoConfirmado: true });
-      }));
-    } catch (err) {
-      toast(err.message, true);
-    }
-  };
 }
 
 document.getElementById("btn-logout").addEventListener("click", logout);
@@ -705,7 +667,21 @@ function colunaFinal(equipeId) {
   return colunasDaEquipe(equipeId).find(c => c.finaliza) || null;
 }
 
-// Ajusta os campos de conclusão quando a tarefa muda para `coluna`.
+function ehColunaAndamento(coluna) {
+  return !coluna.finaliza && semAcento(coluna.nome).trim() === "em andamento";
+}
+
+// Grupos com coluna "Em andamento" usam a própria coluna como status:
+// o campo Status fica escondido e acompanha a coluna.
+function statusPelaColuna(equipeId) {
+  return colunasDaEquipe(equipeId).some(ehColunaAndamento);
+}
+
+function statusInicial(coluna) {
+  return coluna && ehColunaAndamento(coluna) ? "em andamento" : "pendente";
+}
+
+// Ajusta os campos de conclusão (e o status) quando a tarefa muda para `coluna`.
 function aplicarColuna(t, coluna) {
   t.colunaId = coluna.id;
   if (coluna.finaliza && !t.concluida) {
@@ -716,6 +692,9 @@ function aplicarColuna(t, coluna) {
   } else if (!coluna.finaliza && t.concluida) {
     t.concluida = false;
     t.status    = "pendente";
+  }
+  if (!coluna.finaliza && statusPelaColuna(t.equipeId)) {
+    t.status = ehColunaAndamento(coluna) ? "em andamento" : "pendente";
   }
 }
 
@@ -887,7 +866,7 @@ function renderBoard() {
         try {
           const nova = await api.criarTarefa({
             equipeId: eq.id, colunaId: col.id, nome,
-            prazo: "unica", urgencia: "media", status: "pendente",
+            prazo: "unica", urgencia: "media", status: statusInicial(col),
             etapas: [], criadoEm: new Date().toISOString(),
           });
           state.tarefas.push(nova);
@@ -1106,7 +1085,7 @@ function buildCard(t) {
     </div>
     <div class="card-meta">
       <div class="urgency-dot ${urgClass}"></div>
-      <span class="badge ${statusClass}">${statusLabel}</span>
+      ${statusPelaColuna(t.equipeId) ? "" : `<span class="badge ${statusClass}">${statusLabel}</span>`}
       ${t.dataPrazo ? `<span class="card-prazo ${situacaoPrazo(t) || ""}">${
         { atrasada: "Atrasada · ", hoje: "Vence hoje · " }[situacaoPrazo(t)] || ""}${formatDate(t.dataPrazo)}</span>` : ""}
     </div>
@@ -1681,7 +1660,7 @@ document.getElementById("btn-save-create").addEventListener("click", async () =>
     etapas: etapasTemp.map(e => ({ ...e })),
     prazo, dataPrazo, urgencia,
     responsavel: respId ? parseInt(respId) : null,
-    status: "pendente",
+    status: statusInicial(colunasDaEquipe(state.equipeAtual).find(c => c.id === colunaId)),
     observacoes: "", retorno: "",
     criadoEm: new Date().toISOString(),
     criadoPor: state.current.id,
@@ -1932,6 +1911,7 @@ function openDetail(id) {
 
   // Concluída é controlada pelo botão Concluir/Reabrir, não pelo Status.
   const selStatus = document.getElementById("detail-status-sel");
+  selStatus.closest(".detail-prop").classList.toggle("hidden", statusPelaColuna(t.equipeId));
   selStatus.querySelector('option[value="concluida"]')?.remove();
   if (t.concluida) {
     selStatus.insertAdjacentHTML("beforeend", '<option value="concluida">Concluída</option>');
@@ -2798,6 +2778,7 @@ function renderTabela() {
 
   const visiveis = tarefasVisiveis();
   const membros  = membrosDaEquipe(eq.id);
+  const comStatus = !statusPelaColuna(eq.id);
 
   eq.colunas.forEach(col => {
     const tasks = ordenarTarefas(tarefasDaColuna(visiveis, col));
@@ -2811,12 +2792,12 @@ function renderTabela() {
       </div>
       <table>
         <colgroup>
-          <col style="width:30%"><col style="width:15%"><col style="width:12%">
+          <col style="width:${comStatus ? 30 : 42}%"><col style="width:15%">${comStatus ? `<col style="width:12%">` : ""}
           <col style="width:10%"><col style="width:12%"><col style="width:6%">
           <col style="width:10%"><col style="width:5%">
         </colgroup>
         <thead><tr>
-          <th>Tarefa</th><th>Responsável</th><th>Status</th><th>Urgência</th>
+          <th>Tarefa</th><th>Responsável</th>${comStatus ? "<th>Status</th>" : ""}<th>Urgência</th>
           <th>Prazo</th><th>Etapas</th><th>Coluna</th><th></th>
         </tr></thead>
         <tbody></tbody>
@@ -2838,9 +2819,9 @@ function renderTabela() {
           ${t.comentarios ? `<span class="card-comentarios" title="Comentários">${ICONE_COMENTARIO}${t.comentarios}</span>` : ""}
         </div></td>
         <td><select class="campo-resp">${opcoesHTML([["", "Sem responsável"], ...membros.map(u => [u.id, u.nome])], t.responsavel)}</select></td>
-        <td>${t.concluida
+        ${!comStatus ? "" : `<td>${t.concluida
           ? `<span class="tabela-concluida">Concluída</span>`
-          : `<select class="campo-status">${opcoesHTML([["pendente", "Pendente"], ["em andamento", "Em andamento"]], t.status)}</select>`}</td>
+          : `<select class="campo-status">${opcoesHTML([["pendente", "Pendente"], ["em andamento", "Em andamento"]], t.status)}</select>`}</td>`}
         <td><select class="campo-urg">${opcoesHTML([["alta", "Alta"], ["media", "Média"], ["baixa", "Baixa"]], t.urgencia)}</select></td>
         <td><input type="date" class="campo-prazo ${sit || ""}" value="${t.dataPrazo || ""}" title="${sit === "atrasada" ? "Atrasada" : sit === "hoje" ? "Vence hoje" : ""}" /></td>
         <td class="tabela-etapas">${t.etapas.length ? `${etapasFeitas}/${t.etapas.length}` : "—"}</td>
@@ -2893,7 +2874,7 @@ function renderTabela() {
         try {
           state.tarefas.push(await api.criarTarefa({
             equipeId: eq.id, colunaId: col.id, nome,
-            prazo: "unica", urgencia: "media", status: "pendente",
+            prazo: "unica", urgencia: "media", status: statusInicial(col),
             etapas: [], criadoEm: new Date().toISOString(),
           }));
           renderBoard();

@@ -395,23 +395,6 @@ textarea { resize: vertical; min-height: 70px; }
 #modal-confirm .modal-header { border-bottom: none; padding-bottom: 4px; }
 #modal-confirm .modal-header-info p { color: var(--muted); font-size: 13px; margin-top: 6px; line-height: 1.5; }
 
-/* ── Modal de aviso de novas tarefas ─────────────────────── */
-#modal-aviso .modal-header { border-bottom: none; padding-bottom: 4px; }
-#modal-aviso .modal-header-info p { color: var(--muted); font-size: 13px; margin-top: 6px; line-height: 1.5; }
-.aviso-tarefas-list {
-  display: flex; flex-direction: column; gap: 6px;
-  max-height: 240px; overflow-y: auto;
-}
-.aviso-tarefas-list li {
-  padding: 9px 12px;
-  background: var(--surface2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  font-size: 13px;
-}
-.aviso-tarefas-list li strong { font-weight: 600; }
-.aviso-tarefas-list li span { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
-
 .btn-sm { padding: 6px 12px; font-size: 12px; }
 .btn-icon { padding: 7px; border-radius: var(--radius-sm); }
 
