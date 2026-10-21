@@ -83,6 +83,21 @@ const api = {
     aoAlterarTarefa(id);
     return r;
   },
+  criarEtapa:      async (id, texto) => {
+    const r = await apiFetch("POST", `/api/tarefas/${id}/etapas`, { texto });
+    aoAlterarTarefa(id);
+    return r;
+  },
+  editarEtapa:     async (id, etapaId, campos) => {
+    const r = await apiFetch("PATCH", `/api/tarefas/${id}/etapas/${etapaId}`, campos);
+    aoAlterarTarefa(id);
+    return r;
+  },
+  excluirEtapa:    async (id, etapaId) => {
+    const r = await apiFetch("DELETE", `/api/tarefas/${id}/etapas/${etapaId}`);
+    aoAlterarTarefa(id);
+    return r;
+  },
   getAtividade:    (id)       => apiFetch("GET",    `/api/tarefas/${id}/atividade`),
   comentar:        (id, texto) => apiFetch("POST",  `/api/tarefas/${id}/comentarios`, { texto }),
   apagarComentario:(id)       => apiFetch("DELETE", `/api/comentarios/${id}`),
@@ -257,7 +272,7 @@ async function atualizarEmSegundoPlano() {
 
   state.users   = users;
   state.equipes = equipes;
-  state.tarefas = tarefas;
+  state.tarefas = tarefas.filter(t => !exclusoesPendentes.has(t.id));
   resetDiariasSeNecessario();
   if (!equipeAtual()) state.equipeAtual = state.equipes[0]?.id ?? null;
 
@@ -300,8 +315,13 @@ document.getElementById("btn-sidebar-toggle").addEventListener("click", () => {
 });
 
 // ── Boot ──────────────────────────────────────────────────
+function aplicarCardsCompactos(ligado) {
+  document.documentElement.toggleAttribute("data-compacto", ligado);
+}
+
 async function boot() {
   aplicarSidebarRecolhida(lerPreferencia("sidebarRecolhida", "") === "1");
+  aplicarCardsCompactos(lerPreferencia("cardsCompactos", "") === "1");
   state.visao     = lerPreferencia("visao", "quadro");
   state.ordenacao = lerPreferencia("ordenacao", "criacao");
   mostrarQuadro();
@@ -488,6 +508,7 @@ async function enterApp() {
 document.getElementById("btn-logout").addEventListener("click", logout);
 
 function logout() {
+  enviarExclusoesPendentes();
   state.current      = null;
   state.filtroUsuario = null;
   state.tarefas      = [];
@@ -593,7 +614,7 @@ function renderFiltroUsuarios() {
   const group = document.createElement("div");
   group.className = "filtro-group";
 
-  // Busca por nome ou descrição
+  // Busca por nome, descrição, cliente, competência ou etiqueta
   const busca = document.createElement("div");
   busca.className = "filtro-busca";
   busca.innerHTML = `
@@ -713,6 +734,7 @@ async function moverTarefa(t, coluna) {
   try {
     Object.assign(t, await api.patchTarefa(t.id, camposConclusao(t)));
     renderBoard();
+    if (t.concluida && !anterior.concluida) avisarConclusao(t, anterior);
   } catch (err) {
     Object.assign(t, anterior);
     renderBoard();
@@ -753,6 +775,10 @@ function renderBoard() {
   const gestor = souGestorDaEquipe(eq);
   board.style.setProperty("--ncols", Math.max(colunas.length, 1));
   board.classList.toggle("com-coluna-nova", gestor);
+  const recolhidas = colunasRecolhidas();
+  board.style.gridTemplateColumns = colunas.length
+    ? colunas.map(c => recolhidas.has(c.id) ? "46px" : "minmax(250px, 1fr)").join(" ") + (gestor ? " auto" : "")
+    : "";
 
   const tarefasFiltradas = tarefasVisiveis();
 
@@ -763,7 +789,7 @@ function renderBoard() {
     ).length;
 
     const col_el = document.createElement("div");
-    col_el.className = "column";
+    col_el.className = "column" + (recolhidas.has(col.id) ? " recolhida" : "");
     col_el.innerHTML = `
       <div class="column-header">
         <div class="column-title">
@@ -772,6 +798,9 @@ function renderBoard() {
         </div>
         <div class="column-header-direita">
           <span class="col-count">${count}</span>
+          <button type="button" class="coluna-recolher-btn" title="${recolhidas.has(col.id) ? "Expandir coluna" : "Recolher coluna"}">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="${recolhidas.has(col.id) ? "9 18 15 12 9 6" : "15 18 9 12 15 6"}"/></svg>
+          </button>
           ${gestor ? `<button type="button" class="coluna-menu-btn" title="Opções da coluna">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
           </button>` : ""}
@@ -781,6 +810,21 @@ function renderBoard() {
     col_el.querySelector(".col-dot").style.background = col.cor;
     col_el.querySelector(".column-nome").textContent = col.nome;
     board.appendChild(col_el);
+
+    const btnRecolher = col_el.querySelector(".coluna-recolher-btn");
+    btnRecolher.addEventListener("click", e => { e.stopPropagation(); alternarColunaRecolhida(col.id); });
+    btnRecolher.addEventListener("mousedown", e => e.stopPropagation());
+    if (recolhidas.has(col.id)) {
+      col_el.addEventListener("click", () => alternarColunaRecolhida(col.id));
+      // Soltar um card numa coluna recolhida também move a tarefa.
+      col_el.addEventListener("dragover", e => { if (!arrastandoColuna(e)) e.preventDefault(); });
+      col_el.addEventListener("drop", e => {
+        if (arrastandoColuna(e)) return;
+        e.preventDefault();
+        const t = state.tarefas.find(x => x.id === Number(e.dataTransfer.getData("text/plain")));
+        if (t && colunaDaTarefa(t)?.id !== col.id) moverTarefa(t, col);
+      });
+    }
 
     // Mover a coluna: arrastar pelo cabeçalho (só quem administra o quadro).
     if (gestor) {
@@ -885,6 +929,18 @@ function renderBoard() {
   renderNavEquipes();
 }
 
+// Colunas recolhidas ficam guardadas neste navegador, por pessoa.
+function colunasRecolhidas() {
+  return new Set(lerPreferencia("colunasRecolhidas", "").split(",").filter(Boolean).map(Number));
+}
+
+function alternarColunaRecolhida(id) {
+  const recolhidas = colunasRecolhidas();
+  recolhidas.has(id) ? recolhidas.delete(id) : recolhidas.add(id);
+  salvarPreferencia("colunasRecolhidas", [...recolhidas].join(","));
+  renderBoard();
+}
+
 // ── Cards ─────────────────────────────────────────────────
 function nomeOuVoce(u) {
   return u.id === state.current?.id ? "Você" : escapeHTML(u.nome);
@@ -932,8 +988,8 @@ async function concluirRapido(t) {
       return;
     }
     renderBoard();
+    avisarConclusao(t, anterior);
   }
-  if (t.concluida) toast("Tarefa concluída!");
 }
 
 function fecharMenuResponsavel() {
@@ -1027,18 +1083,9 @@ ${acoesRapidasHTML(t)}
   });
 
   ligarAcoesRapidas(el, t);
-  el.querySelector(".card-delete-btn").addEventListener("click", async e => {
+  el.querySelector(".card-delete-btn").addEventListener("click", e => {
     e.stopPropagation();
-    const ok = await showConfirm(`Excluir a tarefa diária "${t.nome}" permanentemente? Essa ação não pode ser desfeita.`);
-    if (!ok) return;
-    try {
-      await api.deletarTarefa(t.id);
-      state.tarefas = state.tarefas.filter(x => x.id !== t.id);
-      renderBoard();
-      toast("Tarefa diária excluída.");
-    } catch (err) {
-      toast(err.message, true);
-    }
+    excluirTarefa(t);
   });
 
   el.addEventListener("click", () => openDetail(t.id));
@@ -1088,7 +1135,10 @@ function buildCard(t) {
       ${statusPelaColuna(t.equipeId) ? "" : `<span class="badge ${statusClass}">${statusLabel}</span>`}
       ${t.dataPrazo ? `<span class="card-prazo ${situacaoPrazo(t) || ""}">${
         { atrasada: "Atrasada · ", hoje: "Vence hoje · " }[situacaoPrazo(t)] || ""}${formatDate(t.dataPrazo)}</span>` : ""}
+      ${t.cliente || t.competencia ? `<span class="card-cliente">${[escapeHTML(t.cliente || ""), formatCompetencia(t.competencia)]
+        .filter(Boolean).join(" · ")}</span>` : ""}
     </div>
+    ${t.etiquetas?.length ? `<div class="card-etiquetas">${etiquetasHTML(t)}</div>` : ""}
     ${etapasTotal > 0 ? `
       <div class="card-progress">
         <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
@@ -1103,23 +1153,25 @@ function buildCard(t) {
     ` : ""}`;
 
   ligarAcoesRapidas(el, t);
-  el.querySelector(".card-delete-btn").addEventListener("click", async e => {
+  el.querySelector(".card-delete-btn").addEventListener("click", e => {
     e.stopPropagation();
-    const ok = await showConfirm(`Excluir a tarefa "${t.nome}" permanentemente? Essa ação não pode ser desfeita.`);
-    if (!ok) return;
-    try {
-      await api.deletarTarefa(t.id);
-      state.tarefas = state.tarefas.filter(x => x.id !== t.id);
-      renderBoard();
-      if (document.getElementById("concluded-screen").classList.contains("visible")) renderConcluded();
-      toast("Tarefa excluída.");
-    } catch (err) {
-      toast(err.message, true);
-    }
+    excluirTarefa(t);
   });
+  // Clicar numa etiqueta filtra o quadro por ela.
+  el.querySelectorAll(".card-etiquetas .etiqueta").forEach(et => et.addEventListener("click", e => {
+    e.stopPropagation();
+    filtrarPorTexto(et.dataset.etiqueta);
+  }));
 
   el.addEventListener("click", () => openDetail(t.id));
   return el;
+}
+
+function filtrarPorTexto(texto) {
+  state.busca = texto;
+  const input = document.querySelector(".filtro-busca input");
+  if (input) input.value = texto;
+  renderBoard();
 }
 
 // ── View: Concluídas ──────────────────────────────────────
@@ -1375,8 +1427,8 @@ function openAdminTarefaModal(id) {
   document.getElementById("admin-t-prazo").value        = t.prazo;
   document.getElementById("admin-t-data-prazo").value   = t.dataPrazo || "";
   document.getElementById("admin-t-urgencia").value     = t.urgencia;
-  document.getElementById("admin-t-status").value       = t.status;
-  document.getElementById("admin-t-concluida").value    = t.concluida ? "true" : "false";
+  // Status "Concluída" e o campo concluida são uma coisa só no Gerenciador.
+  document.getElementById("admin-t-status").value       = t.concluida ? "concluida" : (t.status === "concluida" ? "pendente" : t.status);
   document.getElementById("admin-t-observacoes").value  = t.observacoes || "";
   document.getElementById("admin-t-retorno").value      = t.retorno || "";
   document.getElementById("admin-t-etapas").value       = JSON.stringify(t.etapas || [], null, 2);
@@ -1449,8 +1501,11 @@ document.getElementById("btn-save-admin-tarefa").addEventListener("click", async
     retorno:     document.getElementById("admin-t-retorno").value,
     criadoEm:    t.criadoEm,
     criadoPor:   t.criadoPor,
-    concluida:   document.getElementById("admin-t-concluida").value === "true",
+    concluida:   document.getElementById("admin-t-status").value === "concluida",
     diariaFeitaEm: t.diariaFeitaEm,
+    colunaId:    t.colunaId,
+    concluidoEm: t.concluidoEm,
+    concluidoPor: t.concluidoPor,
   };
 
   if (!payload.nome) { toast("Informe o nome da tarefa.", true); return; }
@@ -1717,10 +1772,9 @@ function openDetail(id) {
     `Criada${criador ? ` por ${criador.nome}` : ""} em ${formatDate(t.criadoEm)}` +
     (t.concluida && t.concluidoEm ? ` · Concluída em ${formatDate(t.concluidoEm)}${concluidor ? ` por ${concluidor.nome}` : ""}` : "");
   document.getElementById("detail-title").onclick = () => startEditTitle(t, id);
-  document.getElementById("btn-detail-excluir").onclick = async () => {
-    const antes = state.tarefas.length;
-    await excluirTarefa(t);
-    if (state.tarefas.length < antes) closeDetail();
+  document.getElementById("btn-detail-excluir").onclick = () => {
+    closeDetail();
+    excluirTarefa(t);
   };
 
   document.getElementById("btn-edit-title").onclick = () => startEditTitle(t, id);
@@ -1733,7 +1787,15 @@ function openDetail(id) {
     try { await api.patchTarefa(t.id, { descricao: t.descricao }); }
     catch (err) { toast(err.message, true); }
   }, 600);
-  inputDesc.oninput = () => { autoGrowTextarea(inputDesc, 120); salvarDescDebounced(); };
+  const mostrarLinksDesc = () => {
+    const box = document.getElementById("detail-desc-links");
+    const links = linksDoTexto(inputDesc.value);
+    box.classList.toggle("hidden", links.length === 0);
+    box.textContent = "";
+    links.forEach(l => { const a = document.createElement("span"); preencherComLinks(a, l); box.appendChild(a); });
+  };
+  mostrarLinksDesc();
+  inputDesc.oninput = () => { autoGrowTextarea(inputDesc, 120); salvarDescDebounced(); mostrarLinksDesc(); };
 
   const etapasFeitas = t.etapas.filter(e => e.concluida).length;
   document.getElementById("detail-etapas-progresso").textContent =
@@ -1764,17 +1826,9 @@ function openDetail(id) {
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
         </div>`;
-      item.addEventListener("click", async () => {
-        etapa.concluida = !etapa.concluida;
-        try {
-          await api.patchTarefa(t.id, { etapas: t.etapas });
-          openDetail(id);
-          renderBoard();
-        } catch (err) {
-          etapa.concluida = !etapa.concluida;
-          toast(err.message, true);
-        }
-      });
+      item.addEventListener("click", () =>
+        salvarEtapas(t, id, () => api.editarEtapa(t.id, etapa.id, { concluida: !etapa.concluida }))
+      );
       item.querySelector(".btn-edit-etapa").addEventListener("click", e => {
         e.stopPropagation();
         startEditEtapa(t, etapa, item, id);
@@ -1786,15 +1840,7 @@ function openDetail(id) {
           confirmLabel: "Excluir",
         });
         if (!ok) return;
-        t.etapas = t.etapas.filter(e2 => e2 !== etapa);
-        try {
-          await api.patchTarefa(t.id, { etapas: t.etapas });
-          openDetail(id);
-          renderBoard();
-          toast("Etapa excluída.");
-        } catch (err) {
-          toast(err.message, true);
-        }
+        if (await salvarEtapas(t, id, () => api.excluirEtapa(t.id, etapa.id))) toast("Etapa excluída.");
       });
       checklist.appendChild(item);
     });
@@ -1805,15 +1851,7 @@ function openDetail(id) {
   const addEtapaDetail = async () => {
     const val = inputNovaEtapa.value.trim();
     if (!val) return;
-    t.etapas.push({ id: Date.now(), texto: val, concluida: false });
-    try {
-      await api.patchTarefa(t.id, { etapas: t.etapas });
-      openDetail(id);
-      renderBoard();
-    } catch (err) {
-      t.etapas.pop();
-      toast(err.message, true);
-    }
+    await salvarEtapas(t, id, () => api.criarEtapa(t.id, val));
   };
   document.getElementById("btn-detail-add-etapa").onclick = addEtapaDetail;
   inputNovaEtapa.onkeydown = e => {
@@ -1954,6 +1992,8 @@ function openDetail(id) {
   }, 600);
   inputRetorno.oninput = () => { autoGrowTextarea(inputRetorno, 160); salvarRetornoDebounced(); };
 
+  preencherDetalheExtras(t);
+
   const btnConcluir = document.getElementById("btn-concluir");
   btnConcluir.textContent = t.concluida ? "Reabrir Tarefa" : "Concluir Tarefa";
   btnConcluir.className   = t.concluida ? "btn btn-ghost"  : "btn btn-primary";
@@ -1978,14 +2018,88 @@ function openDetail(id) {
     try {
       Object.assign(t, await api.patchTarefa(t.id, camposConclusao(t)));
       closeDetail();
-      renderBoard();
-      if (document.getElementById("concluded-screen").classList.contains("visible")) renderConcluded();
-      toast(t.concluida ? "Tarefa concluída!" : "Tarefa reaberta.");
+      redesenharTarefas();
+      if (t.concluida) avisarConclusao(t, anterior);
+      else toast("Tarefa reaberta.");
     } catch (err) {
       Object.assign(t, anterior);
       toast(err.message, true);
     }
   };
+}
+
+// ── Cliente, competência e etiquetas ──────────────────────
+function formatCompetencia(c) {
+  if (!c) return "";
+  const [a, m] = c.split("-");
+  return `${m}/${a}`;
+}
+
+// Sugestões tiradas do que a equipe já usa.
+function preencherSugestoes(equipeId) {
+  const daEquipe = state.tarefas.filter(t => t.equipeId === equipeId);
+  const unicos = lista => [...new Map(lista.map(v => [semAcento(v), v])).values()]
+    .sort((a, b) => a.localeCompare(b, "pt-BR"));
+  const opcoes = lista => lista.map(v => `<option value="${escapeHTML(v)}"></option>`).join("");
+  document.getElementById("lista-clientes").innerHTML =
+    opcoes(unicos(daEquipe.map(t => t.cliente).filter(Boolean)));
+  document.getElementById("lista-etiquetas").innerHTML =
+    opcoes(unicos(daEquipe.flatMap(t => t.etiquetas || [])));
+}
+
+function etiquetasHTML(t, removivel = false) {
+  return (t.etiquetas || []).map(e => `
+    <span class="etiqueta" data-etiqueta="${escapeHTML(e)}">${escapeHTML(e)}${removivel
+      ? `<button type="button" class="etiqueta-remover" title="Remover etiqueta">&times;</button>` : ""}</span>`).join("");
+}
+
+function preencherDetalheExtras(t) {
+  preencherSugestoes(t.equipeId);
+
+  const inputCliente = document.getElementById("detail-cliente");
+  inputCliente.value = t.cliente || "";
+  inputCliente.onchange = () => {
+    const cliente = inputCliente.value.trim();
+    if (cliente !== (t.cliente || "")) salvarCampo(t, { cliente });
+  };
+  inputCliente.onkeydown = e => { if (e.key === "Enter") inputCliente.blur(); };
+
+  const inputComp = document.getElementById("detail-competencia");
+  inputComp.value = t.competencia || "";
+  inputComp.onchange = () => salvarCampo(t, { competencia: inputComp.value || null });
+
+  const campo = document.getElementById("detail-etiquetas");
+  const inputEtiqueta = document.getElementById("detail-etiqueta-input");
+  campo.querySelectorAll(".etiqueta").forEach(el => el.remove());
+  inputEtiqueta.insertAdjacentHTML("beforebegin", etiquetasHTML(t, true));
+  inputEtiqueta.value = "";
+  const salvarEtiquetas = async etiquetas => {
+    await salvarCampo(t, { etiquetas });
+    preencherDetalheExtras(t);
+  };
+  campo.querySelectorAll(".etiqueta-remover").forEach(b => {
+    b.onclick = () => {
+      const nome = b.parentElement.dataset.etiqueta;
+      salvarEtiquetas(t.etiquetas.filter(e => e !== nome));
+    };
+  });
+  const adicionar = () => {
+    const nova = inputEtiqueta.value.trim().replace(/\s+/g, " ");
+    if (!nova) return;
+    if ((t.etiquetas || []).some(e => semAcento(e) === semAcento(nova))) { inputEtiqueta.value = ""; return; }
+    // Reaproveita a grafia que a equipe já usa ("Fiscal" e não "fiscal").
+    const existente = [...document.querySelectorAll("#lista-etiquetas option")]
+      .map(o => o.value).find(v => semAcento(v) === semAcento(nova));
+    salvarEtiquetas([...(t.etiquetas || []), existente || nova]);
+  };
+  inputEtiqueta.onkeydown = e => {
+    if (e.key === "Enter" || e.key === ",") { e.preventDefault(); adicionar(); }
+    if (e.key === "Backspace" && !inputEtiqueta.value && t.etiquetas?.length) {
+      salvarEtiquetas(t.etiquetas.slice(0, -1));
+    }
+  };
+  inputEtiqueta.onchange = adicionar;
+  campo.onclick = e => { if (e.target === campo) inputEtiqueta.focus(); };
 }
 
 function startEditTitle(t, id) {
@@ -2035,6 +2149,25 @@ function startEditTitle(t, id) {
   input.addEventListener("blur", save);
 }
 
+// Grava uma alteração de etapa e adota a lista devolvida pelo servidor,
+// que já inclui o que outras pessoas tenham mudado nesse meio tempo.
+async function salvarEtapas(t, id, chamada) {
+  try {
+    const atualizada = await chamada();
+    t.etapas = atualizada.etapas;
+    return true;
+  } catch (err) {
+    toast(err.message, true);
+    // A etapa pode ter sido mudada por outra pessoa: recarrega a tarefa.
+    const doServidor = (await api.getTarefas().catch(() => [])).find(x => x.id === t.id);
+    if (doServidor) Object.assign(t, doServidor);
+    return false;
+  } finally {
+    openDetail(id);
+    renderBoard();
+  }
+}
+
 function startEditEtapa(t, etapa, item, id) {
   const label = item.querySelector(".check-label");
   const input = document.createElement("input");
@@ -2052,17 +2185,7 @@ function startEditEtapa(t, etapa, item, id) {
     resolved = true;
     const val = input.value.trim();
     if (!val || val === etapa.texto) { openDetail(id); return; }
-    const textoAnterior = etapa.texto;
-    etapa.texto = val;
-    try {
-      await api.patchTarefa(t.id, { etapas: t.etapas });
-      openDetail(id);
-      renderBoard();
-    } catch (err) {
-      etapa.texto = textoAnterior;
-      toast(err.message, true);
-      openDetail(id);
-    }
+    await salvarEtapas(t, id, () => api.editarEtapa(t.id, etapa.id, { texto: val }));
   };
   input.addEventListener("keydown", e => {
     if (e.key === "Enter")  { e.preventDefault(); save(); }
@@ -2669,7 +2792,9 @@ function tarefasVisiveis() {
   let lista = tarefasDaEquipeAtual();
   if (state.filtroUsuario !== null) lista = lista.filter(t => t.responsavel === state.filtroUsuario);
   const termo = semAcento(state.busca).trim();
-  if (termo) lista = lista.filter(t => semAcento(t.nome).includes(termo) || semAcento(t.descricao).includes(termo));
+  if (termo) lista = lista.filter(t =>
+    [t.nome, t.descricao, t.cliente, formatCompetencia(t.competencia), ...(t.etiquetas || [])]
+      .some(v => semAcento(v).includes(termo)));
   return lista;
 }
 
@@ -2892,18 +3017,74 @@ function renderTabela() {
   });
 }
 
-async function excluirTarefa(t) {
-  const ok = await showConfirm(`Excluir a tarefa "${t.nome}" permanentemente? Essa ação não pode ser desfeita.`);
-  if (!ok) return;
+// ── Excluir e concluir com "Desfazer" ─────────────────────
+// A exclusão só vai ao servidor depois do prazo do aviso; até lá a tarefa
+// some da tela e "Desfazer" a devolve. Ao sair da página, o que estiver
+// pendente é enviado na hora.
+const PRAZO_DESFAZER = 6000;
+const exclusoesPendentes = new Map();
+
+function redesenharTarefas() {
+  renderBoard();
+  if (document.getElementById("concluded-screen").classList.contains("visible")) renderConcluded();
+}
+
+function excluirTarefa(t) {
+  state.tarefas = state.tarefas.filter(x => x.id !== t.id);
+  redesenharTarefas();
+  const timer = setTimeout(() => efetivarExclusao(t.id), PRAZO_DESFAZER);
+  exclusoesPendentes.set(t.id, { t, timer });
+  toast("Tarefa excluída.", false, {
+    rotulo: "Desfazer",
+    acao: () => {
+      const pendente = exclusoesPendentes.get(t.id);
+      if (!pendente) return;
+      clearTimeout(pendente.timer);
+      exclusoesPendentes.delete(t.id);
+      state.tarefas.push(t);
+      redesenharTarefas();
+    },
+  });
+}
+
+async function efetivarExclusao(id) {
+  const pendente = exclusoesPendentes.get(id);
+  if (!pendente) return;
+  exclusoesPendentes.delete(id);
   try {
-    await api.deletarTarefa(t.id);
-    state.tarefas = state.tarefas.filter(x => x.id !== t.id);
-    renderBoard();
-    if (document.getElementById("concluded-screen").classList.contains("visible")) renderConcluded();
-    toast("Tarefa excluída.");
+    await api.deletarTarefa(id);
   } catch (err) {
+    state.tarefas.push(pendente.t);
+    redesenharTarefas();
     toast(err.message, true);
   }
+}
+
+function enviarExclusoesPendentes() {
+  exclusoesPendentes.forEach(({ timer }, id) => {
+    clearTimeout(timer);
+    fetch(`${API}/api/tarefas/${id}`, { method: "DELETE", keepalive: true });
+  });
+  exclusoesPendentes.clear();
+}
+window.addEventListener("pagehide", enviarExclusoesPendentes);
+
+// Aviso de conclusão com "Desfazer", que devolve os campos de antes.
+function avisarConclusao(t, anterior) {
+  toast("Tarefa concluída.", false, {
+    rotulo: "Desfazer",
+    acao: async () => {
+      const campos = camposConclusao(anterior);
+      Object.assign(t, campos);
+      redesenharTarefas();
+      try {
+        Object.assign(t, await api.patchTarefa(t.id, campos));
+        redesenharTarefas();
+      } catch (err) {
+        toast(err.message, true);
+      }
+    },
+  });
 }
 
 // ── Atividade: comentários e histórico ────────────────────
@@ -2939,6 +3120,7 @@ async function carregarAtividade(tarefaId) {
     list.innerHTML = `<div class="atividade-vazia">Nenhuma atividade ainda.</div>`;
     return;
   }
+  let diaAnterior = null;
   itens.forEach(item => {
     const autor = state.users.find(u => u.id === item.usuarioId);
     const el = document.createElement("div");
@@ -2977,11 +3159,53 @@ async function carregarAtividade(tarefaId) {
       }
       const texto = document.createElement("div");
       texto.className = "atividade-comentario-texto";
-      texto.textContent = item.texto;
+      preencherComLinks(texto, item.texto);
       corpo.appendChild(texto);
+    }
+    const dia = rotuloDoDia(item.criadoEm);
+    if (dia !== diaAnterior) {
+      const cab = document.createElement("div");
+      cab.className = "atividade-dia";
+      cab.textContent = dia;
+      list.appendChild(cab);
+      diaAnterior = dia;
     }
     list.appendChild(el);
   });
+}
+
+function rotuloDoDia(iso) {
+  const dia = todayStr(new Date(iso));
+  if (dia === todayStr()) return "Hoje";
+  const ontem = new Date();
+  ontem.setDate(ontem.getDate() - 1);
+  if (dia === todayStr(ontem)) return "Ontem";
+  const [a, m, d] = dia.split("-");
+  return `${d}/${m}/${a}`;
+}
+
+// Escreve o texto em `el` com os endereços (http/https) virando links.
+// Monta os nós um a um, sem innerHTML, para não abrir brecha de XSS.
+const REGEX_LINK = /\bhttps?:\/\/[^\s<>"]*[^\s<>".,;:!?)\]]/g;
+function preencherComLinks(el, texto) {
+  el.textContent = "";
+  let ultimo = 0;
+  for (const m of texto.matchAll(REGEX_LINK)) {
+    el.append(texto.slice(ultimo, m.index));
+    const a = document.createElement("a");
+    a.href = m[0];
+    a.textContent = m[0];
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    a.addEventListener("click", e => e.stopPropagation());
+    el.append(a);
+    ultimo = m.index + m[0].length;
+  }
+  el.append(texto.slice(ultimo));
+}
+
+function linksDoTexto(texto) {
+  return [...new Set((texto || "").match(REGEX_LINK) || [])];
 }
 
 // Depois de qualquer alteração na tarefa aberta, recarrega a atividade
@@ -3887,6 +4111,17 @@ function renderConfig() {
   };
   ca.appendChild(linhaConfig("Barra lateral", recolhida));
 
+  const compacto = document.createElement("label");
+  compacto.className = "checkbox-row";
+  compacto.innerHTML = `<input type="checkbox" /> Mostrar só o essencial em cada card`;
+  const chkCompacto = compacto.querySelector("input");
+  chkCompacto.checked = lerPreferencia("cardsCompactos", "") === "1";
+  chkCompacto.onchange = () => {
+    aplicarCardsCompactos(chkCompacto.checked);
+    salvarPreferencia("cardsCompactos", chkCompacto.checked ? "1" : "");
+  };
+  ca.appendChild(linhaConfig("Cards compactos", compacto));
+
   const visao = document.createElement("select");
   visao.className = "ordenacao-sel";
   visao.innerHTML = opcoesHTML([["quadro", "Quadro"], ["tabela", "Tabela"], ["calendario", "Calendário"]], state.visao);
@@ -4104,13 +4339,22 @@ document.addEventListener("keydown", e => {
   openCreateModal();
 });
 
-function toast(msg, error = false) {
+// `botao` ({ rotulo, acao }) acrescenta uma ação ao aviso, como "Desfazer".
+function toast(msg, error = false, botao = null) {
   const c  = document.getElementById("toast-container");
   const el = document.createElement("div");
   el.className   = `toast ${error ? "error" : ""}`;
   el.textContent = msg;
+  if (botao) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "toast-acao";
+    b.textContent = botao.rotulo;
+    b.onclick = () => { el.remove(); botao.acao(); };
+    el.appendChild(b);
+  }
   c.appendChild(el);
-  setTimeout(() => el.remove(), 3000);
+  setTimeout(() => el.remove(), botao ? PRAZO_DESFAZER : 3000);
 }
 
 function debounce(fn, delay) {

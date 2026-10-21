@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Quadro</title>
-  <link rel="stylesheet" href="static/style.css?v=2026-10-20s" />
+  <link rel="stylesheet" href="static/style.css?v=2026-10-21a" />
 </head>
 <body>
 
@@ -470,6 +470,24 @@
         </label>
       </div>
     </div>
+    <div class="detail-props detail-props-extra">
+      <div class="detail-prop">
+        <label class="detail-prop-label" for="detail-cliente">Cliente</label>
+        <input type="text" id="detail-cliente" placeholder="Sem cliente" maxlength="80" list="lista-clientes" autocomplete="off" />
+      </div>
+      <div class="detail-prop">
+        <label class="detail-prop-label" for="detail-competencia">Competência</label>
+        <input type="month" id="detail-competencia" />
+      </div>
+      <div class="detail-prop">
+        <label class="detail-prop-label" for="detail-etiqueta-input">Etiquetas</label>
+        <div class="etiquetas-campo" id="detail-etiquetas">
+          <input type="text" id="detail-etiqueta-input" placeholder="Adicionar etiqueta" maxlength="30" list="lista-etiquetas" autocomplete="off" />
+        </div>
+      </div>
+    </div>
+    <datalist id="lista-clientes"></datalist>
+    <datalist id="lista-etiquetas"></datalist>
 
     <div class="modal-body">
       <div class="detail-grid">
@@ -479,6 +497,7 @@
           <div class="detail-section detail-section-desc">
             <div class="detail-section-title">Descrição</div>
             <textarea id="detail-desc" placeholder="Descreva o objetivo da tarefa..."></textarea>
+            <div class="detail-links hidden" id="detail-desc-links"></div>
           </div>
 
           <div class="detail-section detail-section-etapas">
@@ -606,13 +625,6 @@
         <div class="form-group">
           <label class="form-label">Responsável</label>
           <select id="admin-t-responsavel"></select>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Concluída</label>
-          <select id="admin-t-concluida">
-            <option value="false">Não</option>
-            <option value="true">Sim</option>
-          </select>
         </div>
       </div>
       <div class="form-group">
@@ -836,6 +848,6 @@
   <span style="color:var(--muted);font-size:13px;">Conectando ao servidor...</span>
 </div>
 
-<script src="static/script.js?v=2026-10-20s"></script>
+<script src="static/script.js?v=2026-10-21a"></script>
 </body>
 </html>

@@ -8,7 +8,11 @@ Branch local `multi-equipes` = `main` do repositório `Controladoria-MG/WJ-Quadr
 - Quadro com colunas personalizáveis, editadas no próprio quadro: criar, renomear, cor, "conclui", excluir, arrastar.
 - Visões Quadro, Tabela (edição na linha) e Calendário (arrastar muda o prazo).
 - Cards com "Atrasada/Vence hoje", destaque do que é seu, ações rápidas (concluir, trocar responsável), busca e filtro por avatar.
-- Detalhe da tarefa repaginado, com comentários e histórico automático.
+- Detalhe da tarefa repaginado, com comentários e histórico automático (agrupado por dia) e links clicáveis.
+- Etiquetas, Cliente e Competência (mês/ano) por tarefa, com sugestões da equipe; aparecem no card e entram na busca. Clicar numa etiqueta filtra o quadro.
+- "Desfazer" depois de excluir ou concluir (a exclusão só vai ao servidor depois de 6 s, ou ao sair da página).
+- Etapas gravadas uma a uma no servidor (rotas `/api/tarefas/{id}/etapas`), sem sobrescrever quem edita ao mesmo tempo.
+- Colunas recolhíveis e cards compactos (Configurações), guardados no navegador.
 - Minhas tarefas, Dashboard (indicadores clicáveis, filtros por equipe, pessoa e período) e notificações (sino).
 - Configurações: modo claro, escuro ou automático, cor de destaque (6 cores, padrão azul), barra lateral recolhível, perfil e membros.
 - Atualização automática leve (ETag), datas no fuso de Brasília, gravação por campo e proteção contra XSS.
@@ -19,21 +23,16 @@ Branch local `multi-equipes` = `main` do repositório `Controladoria-MG/WJ-Quadr
 
 - Nada pela metade no código.
 - O serviço WJ-Quadro no Render está fora de projeto. Falta decidir se ele vai para "My project".
+- O deploy automático foi ligado em 21/10/2026 (app do Render instalado na Controladoria-MG só para o WJ-Quadro). Confirmar no primeiro push.
 
 ## Problemas em aberto
 
-- **Deploy não é automático** no Render. Opções: Manual Deploy, Deploy Hook ou instalar o app do Render na organização Controladoria-MG (precisa de um admin do GitHub).
 - **O repositório `Controladoria-MG/WJ-Quadro` está público.** Confirmar se é intencional.
-- Duas pessoas editando as **etapas** da mesma tarefa ao mesmo tempo ainda se sobrescrevem (`etapas` é gravado como array inteiro).
-- O Gerenciador de Base permite deixar `status` e `concluida` contraditórios.
 - O plano grátis do Render "dorme" depois de 15 minutos sem uso (o primeiro acesso leva de 30 a 60 s).
 
 ## Próximos passos (prioridade)
 
-1. Resolver o auto-deploy no Render e a visibilidade do repositório.
-2. Recorrência mensal, semanal e anual com dias úteis e feriados, e modelos de tarefa.
-3. Exportar para Excel (quadro, tabela e dashboard).
-4. "Desfazer" depois de excluir ou concluir; etiquetas; campo Cliente e Competência.
-5. Pendências visuais: card mais limpo, modo compacto, recolher coluna, títulos de coluna fixos, links clicáveis, atividade agrupada por dia.
-6. Estrutura: backup do banco, arquivar concluídas antigas, dividir `static/script.js`.
-7. Entrega ao TI (quando decidido): vínculo com o usuário do MG Controle em `auth.py`, desligar a tela de escolher o nome, "Sair" levando ao MG Controle e um documento técnico.
+1. Decidir a visibilidade do repositório.
+2. Exportar para Excel (adiado pelo usuário em 21/10/2026). Recorrência e modelos foram descartados.
+3. Estrutura: arquivar concluídas antigas, dividir `static/script.js` (backup descartado).
+4. Entrega ao TI (quando decidido): vínculo com o usuário do MG Controle em `auth.py`, desligar a tela de escolher o nome, "Sair" levando ao MG Controle e um documento técnico.

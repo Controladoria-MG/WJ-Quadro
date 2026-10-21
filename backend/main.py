@@ -21,6 +21,7 @@ from typing import Optional, List
 from datetime import datetime, timezone
 import os
 import json
+import re
 import hashlib
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -162,6 +163,11 @@ def init_db():
                 )
             """)
             cur.execute("ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS coluna_id INTEGER REFERENCES colunas(id) ON DELETE SET NULL")
+
+            # Etiquetas (lista de textos), cliente e competência (AAAA-MM).
+            cur.execute("ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS etiquetas JSONB DEFAULT '[]'")
+            cur.execute("ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS cliente TEXT DEFAULT ''")
+            cur.execute("ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS competencia TEXT")
             conn.commit()
 
             # Importa usuários do JSON só se a tabela estiver vazia
@@ -327,6 +333,9 @@ def row_to_tarefa(row: dict) -> dict:
     etapas = row["etapas"]
     if isinstance(etapas, str):
         etapas = json.loads(etapas)
+    etiquetas = row.get("etiquetas")
+    if isinstance(etiquetas, str):
+        etiquetas = json.loads(etiquetas)
     return {
         "id":             row["id"],
         "equipeId":       row["equipe_id"],
@@ -348,6 +357,9 @@ def row_to_tarefa(row: dict) -> dict:
         "concluidoEm":    row["concluido_em"],
         "concluidoPor":   row["concluido_por"],
         "avisoConfirmado": row["aviso_confirmado"],
+        "etiquetas":      etiquetas or [],
+        "cliente":        row.get("cliente") or "",
+        "competencia":    row.get("competencia"),
         **({"comentarios": row["n_comentarios"]} if "n_comentarios" in row else {}),
     }
 
@@ -484,6 +496,25 @@ def registrar_e_notificar(cur, autor: dict, atual: dict, nova: dict, acoes: List
                   f'{autor["nome"]} atualizou {titulo}: {"; ".join(resto)}',
                   nova["id"], nova["equipe_id"], agrupar)
 
+def limpar_etiquetas(valor) -> list:
+    """Tira espaços e repetidas (sem diferenciar maiúsculas) e limita o tamanho."""
+    if not isinstance(valor, list):
+        raise HTTPException(status_code=400, detail="Etiquetas inválidas.")
+    vistas, saida = set(), []
+    for e in valor:
+        texto = " ".join(str(e).split())[:30]
+        if texto and texto.lower() not in vistas:
+            vistas.add(texto.lower())
+            saida.append(texto)
+    return saida[:10]
+
+def limpar_competencia(valor) -> Optional[str]:
+    if not valor:
+        return None
+    if not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", str(valor)):
+        raise HTTPException(status_code=400, detail="Competência inválida (use mês e ano).")
+    return valor
+
 ROTULO_STATUS   = {"pendente": "Pendente", "em andamento": "Em andamento", "concluida": "Concluída"}
 ROTULO_URGENCIA = {"alta": "Alta", "media": "Média", "baixa": "Baixa"}
 
@@ -527,6 +558,25 @@ def descrever_mudancas(cur, atual: dict, novos: dict) -> List[tuple]:
         acoes.append(("passou a repetir todo dia" if novos["prazo"] == "diaria" else "deixou de repetir todo dia", False))
     if mudou("diaria_feita_em") and novos["diaria_feita_em"]:
         acoes.append(("marcou como feita hoje", True))
+    if mudou("cliente"):
+        acoes.append((f'definiu o cliente "{novos["cliente"]}"' if novos["cliente"] else "removeu o cliente", True))
+    if mudou("competencia"):
+        if novos["competencia"]:
+            a, m = novos["competencia"].split("-")
+            acoes.append((f"definiu a competência {m}/{a}", False))
+        else:
+            acoes.append(("removeu a competência", False))
+    if "etiquetas" in novos:
+        antes = atual.get("etiquetas") or []
+        if isinstance(antes, str):
+            antes = json.loads(antes)
+        depois = json.loads(novos["etiquetas"]) if isinstance(novos["etiquetas"], str) else novos["etiquetas"]
+        for e in depois:
+            if e not in antes:
+                acoes.append((f'adicionou a etiqueta "{e}"', False))
+        for e in antes:
+            if e not in depois:
+                acoes.append((f'removeu a etiqueta "{e}"', False))
     for col, rotulo in (("descricao", "a descrição"), ("observacoes", "as observações"), ("retorno", "o retorno")):
         if mudou(col):
             acoes.append((f"editou {rotulo}", True))
@@ -584,6 +634,9 @@ class Tarefa(BaseModel):
     concluidoEm: Optional[str] = None
     concluidoPor: Optional[int] = None
     avisoConfirmado: Optional[bool] = False
+    etiquetas: Optional[List[str]] = None
+    cliente: Optional[str] = None
+    competencia: Optional[str] = None
 
 class Usuario(BaseModel):
     id: Optional[int] = None
@@ -656,15 +709,17 @@ def criar_tarefa(tarefa: Tarefa, request: Request):
                 INSERT INTO tarefas
                     (equipe_id, coluna_id, nome, descricao, etapas, prazo, data_prazo, urgencia,
                      responsavel, status, observacoes, retorno, criado_em,
-                     criado_por, concluida, diaria_feita_em)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                     criado_por, concluida, diaria_feita_em, etiquetas, cliente, competencia)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 RETURNING *
             """, (
                 tarefa.equipeId, coluna_id, tarefa.nome, tarefa.descricao, etapas_json,
                 tarefa.prazo or "unica", tarefa.dataPrazo, tarefa.urgencia,
                 tarefa.responsavel, tarefa.status, tarefa.observacoes,
                 tarefa.retorno, criado_em, usuario["id"],
-                tarefa.concluida, tarefa.diariaFeitaEm
+                tarefa.concluida, tarefa.diariaFeitaEm,
+                json.dumps(limpar_etiquetas(tarefa.etiquetas or []), ensure_ascii=False),
+                (tarefa.cliente or "").strip(), limpar_competencia(tarefa.competencia),
             ))
             nova = cur.fetchone()
             registrar(cur, nova["id"], usuario["id"], "criou a tarefa")
@@ -694,7 +749,24 @@ def atualizar_tarefa(tarefa_id: int, tarefa: Tarefa, request: Request):
             else:
                 # Mudou de equipe sem escolher coluna: vai para a primeira do novo quadro.
                 coluna_id = primeira_coluna(cur, equipe_id)
-            validar_coluna(cur, equipe_id, coluna_id)
+            coluna = validar_coluna(cur, equipe_id, coluna_id)
+
+            # "concluida" manda: status e coluna acompanham, para nunca
+            # ficarem contraditórios (ex.: concluída numa coluna "A fazer").
+            concluida = bool(tarefa.concluida)
+            status = "concluida" if concluida else (
+                tarefa.status if tarefa.status in ("pendente", "em andamento") else "pendente")
+            if coluna and concluida and not coluna["finaliza"]:
+                cur.execute("SELECT id FROM colunas WHERE equipe_id = %s AND finaliza ORDER BY ordem, id LIMIT 1",
+                            (equipe_id,))
+                final = cur.fetchone()
+                if final:
+                    coluna_id = final["id"]
+            elif coluna and not concluida and coluna["finaliza"]:
+                coluna_id = primeira_coluna(cur, equipe_id) or coluna_id
+            concluido_em, concluido_por = tarefa.concluidoEm, tarefa.concluidoPor
+            if concluida and not concluido_em:
+                concluido_em, concluido_por = agora_iso(), usuario["id"]
 
             etapas_json = json.dumps(
                 [e.model_dump() for e in tarefa.etapas], ensure_ascii=False
@@ -707,7 +779,8 @@ def atualizar_tarefa(tarefa_id: int, tarefa: Tarefa, request: Request):
                     responsavel=%(responsavel)s, status=%(status)s,
                     observacoes=%(observacoes)s, retorno=%(retorno)s,
                     concluida=%(concluida)s, diaria_feita_em=%(diaria_feita_em)s,
-                    concluido_em=%(concluido_em)s, concluido_por=%(concluido_por)s
+                    concluido_em=%(concluido_em)s, concluido_por=%(concluido_por)s,
+                    etiquetas=%(etiquetas)s, cliente=%(cliente)s, competencia=%(competencia)s
                 WHERE id=%(id)s
                 RETURNING *
             """, {
@@ -715,10 +788,15 @@ def atualizar_tarefa(tarefa_id: int, tarefa: Tarefa, request: Request):
                 "descricao": tarefa.descricao, "etapas": etapas_json,
                 "prazo": tarefa.prazo or atual["prazo"], "data_prazo": tarefa.dataPrazo,
                 "urgencia": tarefa.urgencia, "responsavel": tarefa.responsavel,
-                "status": tarefa.status, "observacoes": tarefa.observacoes,
-                "retorno": tarefa.retorno, "concluida": tarefa.concluida,
+                "status": status, "observacoes": tarefa.observacoes,
+                "retorno": tarefa.retorno, "concluida": concluida,
                 "diaria_feita_em": tarefa.diariaFeitaEm,
-                "concluido_em": tarefa.concluidoEm, "concluido_por": tarefa.concluidoPor,
+                "concluido_em": concluido_em, "concluido_por": concluido_por,
+                # Campos ausentes (clientes antigos) mantêm o valor atual.
+                "etiquetas": json.dumps(limpar_etiquetas(tarefa.etiquetas), ensure_ascii=False)
+                             if tarefa.etiquetas is not None else json.dumps(atual["etiquetas"] or [], ensure_ascii=False),
+                "cliente": tarefa.cliente.strip() if tarefa.cliente is not None else atual["cliente"],
+                "competencia": limpar_competencia(tarefa.competencia) if tarefa.competencia is not None else atual["competencia"],
             })
             nova = cur.fetchone()
             registrar_e_notificar(cur, usuario, atual, nova, descrever_mudancas(cur, atual, dict(nova)))
@@ -736,6 +814,7 @@ def patch_tarefa(tarefa_id: int, campos: dict, request: Request):
         "concluida": "concluida", "diariaFeitaEm": "diaria_feita_em",
         "concluidoEm": "concluido_em", "concluidoPor": "concluido_por",
         "avisoConfirmado": "aviso_confirmado", "colunaId": "coluna_id",
+        "etiquetas": "etiquetas", "cliente": "cliente", "competencia": "competencia",
     }
     sets, values, novos = [], [], {}
     for key, val in campos.items():
@@ -744,6 +823,12 @@ def patch_tarefa(tarefa_id: int, campos: dict, request: Request):
             continue
         if col == "etapas" and isinstance(val, list):
             val = json.dumps(val, ensure_ascii=False)
+        elif col == "etiquetas":
+            val = json.dumps(limpar_etiquetas(val), ensure_ascii=False)
+        elif col == "cliente":
+            val = (val or "").strip()
+        elif col == "competencia":
+            val = limpar_competencia(val)
         sets.append(f"{col} = %s")
         values.append(val)
         novos[col] = val
@@ -770,6 +855,80 @@ def patch_tarefa(tarefa_id: int, campos: dict, request: Request):
             registrar_e_notificar(cur, usuario, atual, nova, descrever_mudancas(cur, atual, novos))
             conn.commit()
             return row_to_tarefa(nova)
+
+
+# ── Etapas, uma por vez ───────────────────────────────────
+# Cada rota trava a tarefa (FOR UPDATE) e altera só a etapa pedida, para
+# que duas pessoas editando etapas ao mesmo tempo não se sobrescrevam.
+class EtapaNova(BaseModel):
+    texto: str
+
+class EtapaEdicao(BaseModel):
+    texto: Optional[str] = None
+    concluida: Optional[bool] = None
+
+
+def alterar_etapas(tarefa_id: int, request: Request, alterar):
+    """Aplica `alterar(lista)` às etapas atuais da tarefa e grava o resultado."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            usuario = exigir_usuario(request, cur)
+            cur.execute("SELECT * FROM tarefas WHERE id = %s FOR UPDATE", (tarefa_id,))
+            atual = cur.fetchone()
+            if not atual:
+                raise HTTPException(status_code=404, detail="Tarefa não encontrada")
+            exigir_membro(cur, usuario, atual["equipe_id"])
+            etapas = atual["etapas"]
+            if isinstance(etapas, str):
+                etapas = json.loads(etapas)
+            etapas = [dict(e) for e in etapas or []]
+            alterar(etapas)
+            etapas_json = json.dumps(etapas, ensure_ascii=False)
+            cur.execute("UPDATE tarefas SET etapas = %s WHERE id = %s RETURNING *", (etapas_json, tarefa_id))
+            nova = cur.fetchone()
+            registrar_e_notificar(cur, usuario, atual, nova,
+                                  descrever_mudancas(cur, atual, {"etapas": etapas}))
+            conn.commit()
+            return row_to_tarefa(nova)
+
+
+def achar_etapa(etapas: list, etapa_id: int) -> dict:
+    for e in etapas:
+        if e["id"] == etapa_id:
+            return e
+    raise HTTPException(status_code=404, detail="Etapa não encontrada. Ela pode ter sido excluída por outra pessoa.")
+
+
+@app.post("/api/tarefas/{tarefa_id}/etapas", status_code=201)
+def criar_etapa(tarefa_id: int, etapa: EtapaNova, request: Request):
+    texto = etapa.texto.strip()
+    if not texto:
+        raise HTTPException(status_code=400, detail="Escreva a etapa.")
+    def alterar(etapas):
+        prox = max([e["id"] for e in etapas] + [int(datetime.now().timestamp() * 1000)]) + 1
+        etapas.append({"id": prox, "texto": texto, "concluida": False})
+    return alterar_etapas(tarefa_id, request, alterar)
+
+
+@app.patch("/api/tarefas/{tarefa_id}/etapas/{etapa_id}")
+def editar_etapa(tarefa_id: int, etapa_id: int, edicao: EtapaEdicao, request: Request):
+    def alterar(etapas):
+        e = achar_etapa(etapas, etapa_id)
+        if edicao.texto is not None:
+            texto = edicao.texto.strip()
+            if not texto:
+                raise HTTPException(status_code=400, detail="Escreva a etapa.")
+            e["texto"] = texto
+        if edicao.concluida is not None:
+            e["concluida"] = edicao.concluida
+    return alterar_etapas(tarefa_id, request, alterar)
+
+
+@app.delete("/api/tarefas/{tarefa_id}/etapas/{etapa_id}")
+def excluir_etapa(tarefa_id: int, etapa_id: int, request: Request):
+    def alterar(etapas):
+        etapas.remove(achar_etapa(etapas, etapa_id))
+    return alterar_etapas(tarefa_id, request, alterar)
 
 
 @app.delete("/api/tarefas/{tarefa_id}", status_code=204)
