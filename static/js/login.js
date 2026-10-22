@@ -137,6 +137,7 @@ async function enterApp() {
   renderFiltroUsuarios();
   renderBoard();
   carregarNotificacoes();
+  aceitarConvitePendente();
 }
 
 document.getElementById("btn-logout").addEventListener("click", logout);

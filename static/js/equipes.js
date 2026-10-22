@@ -217,6 +217,9 @@ async function boot() {
     }
   }
 
+  if (convitePendente()) {
+    document.querySelector(".login-sub").textContent = "Você recebeu um convite para um grupo. Escolha seu perfil para entrar nele.";
+  }
   renderLoginUsers();
 }
 

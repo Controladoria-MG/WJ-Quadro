@@ -48,6 +48,21 @@ let state = {
   ordenacao:    "criacao",   // "criacao", "prazo" ou "urgencia"
 };
 
+// ── Convite por link (?convite=...) ───────────────────────
+// Guarda o código e tira do endereço; é aceito depois que a pessoa entra.
+(() => {
+  const params = new URLSearchParams(location.search);
+  const convite = params.get("convite");
+  if (!convite) return;
+  try { sessionStorage.setItem("convitePendente", convite); } catch (e) {}
+  params.delete("convite");
+  history.replaceState(null, "", location.pathname + (params.toString() ? `?${params}` : "") + location.hash);
+})();
+
+function convitePendente() {
+  try { return sessionStorage.getItem("convitePendente"); } catch (e) { return null; }
+}
+
 // ── API helpers ───────────────────────────────────────────
 let salvamentosEmAndamento = 0;
 
@@ -118,6 +133,11 @@ const api = {
   deletarEquipe:   (id, comTarefas = false) => apiFetch("DELETE", `/api/equipes/${id}${comTarefas ? "?com_tarefas=true" : ""}`),
   salvarMembro:    (id, usuarioId, papel) => apiFetch("PUT", `/api/equipes/${id}/membros`, { usuarioId, papel }),
   removerMembro:   (id, usuarioId)        => apiFetch("DELETE", `/api/equipes/${id}/membros/${usuarioId}`),
+  sairDaEquipe:    (id)       => apiFetch("POST",   `/api/equipes/${id}/sair`),
+  verConvite:      (id)       => apiFetch("GET",    `/api/equipes/${id}/convite`),
+  gerarConvite:    (id)       => apiFetch("POST",   `/api/equipes/${id}/convite`),
+  desativarConvite:(id)       => apiFetch("DELETE", `/api/equipes/${id}/convite`),
+  entrarPorConvite:(token)    => apiFetch("POST",   `/api/convites/${encodeURIComponent(token)}/entrar`),
 };
 
 // ── Data helpers ──────────────────────────────────────────

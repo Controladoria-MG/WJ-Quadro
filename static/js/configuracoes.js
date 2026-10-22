@@ -193,6 +193,7 @@ function renderConfig() {
       </div>
       <div class="config-equipe-acoes">
         <button type="button" class="btn btn-ghost btn-sm" data-acao="membros">${gestor ? "Membros" : "Ver membros"}</button>
+        ${minhaParticipacao ? `<button type="button" class="btn btn-ghost btn-sm" data-acao="sair">Sair</button>` : ""}
         ${gestor ? `<button type="button" class="btn btn-danger btn-sm" data-acao="excluir">Excluir</button>` : ""}
       </div>`;
     linha.querySelector("strong").textContent = eq.nome;
@@ -201,6 +202,8 @@ function renderConfig() {
       salvarPreferencia("equipeAtual", String(eq.id));
     };
     linha.querySelector('[data-acao="membros"]').onclick = () => { usarEquipe(); openEquipeModal(); };
+    const btnSair = linha.querySelector('[data-acao="sair"]');
+    if (btnSair) btnSair.onclick = () => sairDaEquipe(eq);
     const btnExcluir = linha.querySelector('[data-acao="excluir"]');
     if (btnExcluir) btnExcluir.onclick = () => excluirEquipe(eq);
     ce.appendChild(linha);

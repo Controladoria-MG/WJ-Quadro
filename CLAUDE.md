@@ -31,7 +31,7 @@ DATABASE_URL=postgresql://... uvicorn backend.main:app --reload --port 8000
 
 ## Modelo e decisões
 
-- **Equipes e grupos** (`equipes` + `equipe_membros`, com papel `admin` ou `membro`). Uma pessoa pode estar em várias. Quem cria um grupo vira admin dele. `usuarios.is_admin` é o admin geral, que vê tudo.
+- **Equipes e grupos** (`equipes` + `equipe_membros`, com papel `admin` ou `membro`). Uma pessoa pode estar em várias. Quem cria um grupo vira admin dele. `usuarios.is_admin` é o admin geral, que vê tudo. Qualquer membro pode **sair** do grupo (`POST /api/equipes/{id}/sair`, botão em Configurações), menos o único membro (exclui o grupo) e o último admin enquanto houver outros membros; as tarefas dele ali ficam sem responsável. **Convite por link:** o admin do grupo gera, troca ou desativa um link `/?convite=<código>` (coluna `equipes.convite_token`, janela de membros); quem abre, depois de entrar, vira membro (`POST /api/convites/{token}/entrar`). O código nunca vai na lista de grupos.
 - **Toda rota checa permissão no servidor** (`exigir_usuario`, `exigir_membro`, `exigir_gestor_equipe`). O responsável de uma tarefa precisa ser membro da equipe dela (não se atribui tarefa a outra área).
 - **Colunas** (`colunas`) são por equipe e configuradas **no próprio quadro** (menu ⋯, "+", arrastar o título), não em Configurações. Uma coluna com `finaliza=true` conclui a tarefa que entra nela.
 - **Diárias:** `prazo = "diaria"`, `diaria_feita_em` com a data local de Brasília (`todayStr` usa `America/Sao_Paulo`). Ficam fora das contagens de "em aberto" e "atrasadas".

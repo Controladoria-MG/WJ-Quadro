@@ -23,6 +23,7 @@ import os
 import json
 import re
 import hashlib
+import secrets
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from dotenv import load_dotenv
@@ -149,6 +150,9 @@ def init_db():
                 )
             """)
             cur.execute("ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS equipe_id INTEGER REFERENCES equipes(id) ON DELETE RESTRICT")
+            # Convite por link: código secreto que o admin do grupo gera e pode trocar ou desativar.
+            cur.execute("ALTER TABLE equipes ADD COLUMN IF NOT EXISTS convite_token TEXT")
+            cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS equipes_convite_token ON equipes (convite_token) WHERE convite_token IS NOT NULL")
             conn.commit()
 
             # Colunas do quadro de cada equipe
@@ -1258,6 +1262,89 @@ def remover_membro(equipe_id: int, usuario_id: int, request: Request):
             )
             conn.commit()
             return equipes_com_membros(cur, [equipe_id])[0]
+
+
+@app.post("/api/equipes/{equipe_id}/sair", status_code=204)
+def sair_da_equipe(equipe_id: int, request: Request):
+    """A própria pessoa deixa a equipe (sem excluí-la). As tarefas dela ali
+    ficam sem responsável e os administradores da equipe são avisados."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            usuario = exigir_usuario(request, cur)
+            papel = papel_na_equipe(cur, usuario["id"], equipe_id)
+            if papel is None:
+                raise HTTPException(status_code=400, detail="Você não faz parte desta equipe.")
+            cur.execute("SELECT usuario_id, papel FROM equipe_membros WHERE equipe_id = %s", (equipe_id,))
+            membros = cur.fetchall()
+            if len(membros) == 1:
+                raise HTTPException(status_code=400, detail="Você é o único membro. Para encerrar o grupo, exclua-o.")
+            outros_admins = [m["usuario_id"] for m in membros if m["papel"] == "admin" and m["usuario_id"] != usuario["id"]]
+            if papel == "admin" and not outros_admins:
+                raise HTTPException(status_code=400,
+                                    detail="Você é o único administrador. Torne outra pessoa administradora antes de sair.")
+            cur.execute("DELETE FROM equipe_membros WHERE equipe_id = %s AND usuario_id = %s", (equipe_id, usuario["id"]))
+            cur.execute("UPDATE tarefas SET responsavel = NULL WHERE equipe_id = %s AND responsavel = %s",
+                        (equipe_id, usuario["id"]))
+            notificar(cur, outros_admins, usuario, f'{usuario["nome"]} saiu de {nome_equipe(cur, equipe_id)}')
+            conn.commit()
+    return None
+
+# ── Convite por link ──────────────────────────────────────
+# O admin do grupo gera um link com um código secreto; quem abre (logado) entra
+# como membro. Gerar de novo troca o código e o link antigo para de funcionar.
+
+def convite_da_equipe(cur, equipe_id: int) -> dict:
+    cur.execute("SELECT convite_token FROM equipes WHERE id = %s", (equipe_id,))
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Equipe não encontrada")
+    return {"token": row["convite_token"]}
+
+@app.get("/api/equipes/{equipe_id}/convite")
+def ver_convite(equipe_id: int, request: Request):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            exigir_gestor_equipe(cur, exigir_usuario(request, cur), equipe_id)
+            return convite_da_equipe(cur, equipe_id)
+
+@app.post("/api/equipes/{equipe_id}/convite")
+def gerar_convite(equipe_id: int, request: Request):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            exigir_gestor_equipe(cur, exigir_usuario(request, cur), equipe_id)
+            convite_da_equipe(cur, equipe_id)
+            cur.execute("UPDATE equipes SET convite_token = %s WHERE id = %s", (secrets.token_urlsafe(16), equipe_id))
+            conn.commit()
+            return convite_da_equipe(cur, equipe_id)
+
+@app.delete("/api/equipes/{equipe_id}/convite")
+def desativar_convite(equipe_id: int, request: Request):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            exigir_gestor_equipe(cur, exigir_usuario(request, cur), equipe_id)
+            convite_da_equipe(cur, equipe_id)
+            cur.execute("UPDATE equipes SET convite_token = NULL WHERE id = %s", (equipe_id,))
+            conn.commit()
+            return {"token": None}
+
+@app.post("/api/convites/{token}/entrar")
+def entrar_por_convite(token: str, request: Request):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            usuario = exigir_usuario(request, cur)
+            cur.execute("SELECT id, nome FROM equipes WHERE convite_token = %s", (token,))
+            equipe = cur.fetchone()
+            if not equipe:
+                raise HTTPException(status_code=404, detail="Este convite não vale mais. Peça um link novo a quem administra o grupo.")
+            ja_era = papel_na_equipe(cur, usuario["id"], equipe["id"]) is not None
+            if not ja_era:
+                cur.execute("INSERT INTO equipe_membros (equipe_id, usuario_id, papel) VALUES (%s, %s, 'membro')",
+                            (equipe["id"], usuario["id"]))
+                cur.execute("SELECT usuario_id FROM equipe_membros WHERE equipe_id = %s AND papel = 'admin'", (equipe["id"],))
+                notificar(cur, [r["usuario_id"] for r in cur.fetchall()], usuario,
+                          f'{usuario["nome"]} entrou em {equipe["nome"]} pelo convite')
+                conn.commit()
+            return {"equipe": equipes_com_membros(cur, [equipe["id"]])[0], "jaEraMembro": ja_era}
 
 # ══════════════════════════════════════════════════════════
 # ROTAS — COLUNAS DO QUADRO

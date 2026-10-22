@@ -95,6 +95,8 @@ function renderEquipeModal() {
     list.appendChild(row);
   });
 
+  if (gestor) carregarConvite(eq);
+
   const selAdd = document.getElementById("equipe-add-usuario");
   selAdd.innerHTML = '<option value="">Selecione uma pessoa...</option>';
   state.users.filter(u => !papelDe.has(u.id)).forEach(u => {
@@ -139,6 +141,75 @@ document.getElementById("btn-equipe-renomear").addEventListener("click", async (
   }
 });
 
+// ── Convite por link ──────────────────────────────────────
+// Quem administra o grupo gera um link; quem abre (e entra) vira membro.
+async function carregarConvite(eq) {
+  const caixa = document.getElementById("equipe-convite");
+  caixa.textContent = "";
+  try {
+    const { token } = await api.verConvite(eq.id);
+    if (equipeAtual()?.id === eq.id) desenharConvite(eq, token);
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
+function desenharConvite(eq, token) {
+  const caixa = document.getElementById("equipe-convite");
+  if (!token) {
+    caixa.innerHTML = `<button type="button" class="btn btn-ghost btn-sm" data-acao="gerar">Gerar link de convite</button>`;
+  } else {
+    caixa.innerHTML = `
+      <div class="etapa-add-row">
+        <input type="text" readonly class="convite-link" />
+        <button type="button" class="btn btn-ghost btn-sm" data-acao="copiar">Copiar</button>
+      </div>
+      <div class="convite-acoes">
+        <button type="button" class="btn-link" data-acao="gerar">Gerar outro link</button>
+        <button type="button" class="btn-link" data-acao="desativar">Desativar link</button>
+      </div>`;
+    const input = caixa.querySelector(".convite-link");
+    input.value = `${location.origin}/?convite=${token}`;
+    input.onclick = () => input.select();
+    caixa.querySelector('[data-acao="copiar"]').onclick = async () => {
+      try { await navigator.clipboard.writeText(input.value); }
+      catch (e) { input.select(); document.execCommand("copy"); }
+      toast("Link copiado.");
+    };
+    caixa.querySelector('[data-acao="desativar"]').onclick = async () => {
+      const ok = await showConfirm("Desativar o link de convite? Quem tiver o link não conseguirá mais entrar por ele.",
+        { title: "Desativar convite", confirmLabel: "Desativar" });
+      if (!ok) return;
+      try { desenharConvite(eq, (await api.desativarConvite(eq.id)).token); }
+      catch (err) { toast(err.message, true); }
+    };
+  }
+  caixa.querySelector('[data-acao="gerar"]').onclick = async () => {
+    if (token) {
+      const ok = await showConfirm("Gerar outro link? O link atual deixa de funcionar.",
+        { title: "Gerar outro link", confirmLabel: "Gerar" });
+      if (!ok) return;
+    }
+    try { desenharConvite(eq, (await api.gerarConvite(eq.id)).token); }
+    catch (err) { toast(err.message, true); }
+  };
+}
+
+async function aceitarConvitePendente() {
+  const token = convitePendente();
+  if (!token) return;
+  try { sessionStorage.removeItem("convitePendente"); } catch (e) {}
+  try {
+    const { equipe, jaEraMembro } = await api.entrarPorConvite(token);
+    substituirEquipe(equipe);
+    state.tarefas = juntarArquivadas(await api.getTarefas());
+    escolherEquipe(equipe.id);
+    toast(jaEraMembro ? `Você já faz parte de ${equipe.nome}.` : `Você entrou em ${equipe.nome}.`);
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
 // Exclui a equipe/grupo; se houver tarefas, a confirmação diz quantas vão junto.
 async function excluirEquipe(eq) {
   const nTarefas = state.tarefas.filter(t => t.equipeId === eq.id).length;
@@ -165,6 +236,38 @@ async function excluirEquipe(eq) {
   if (configVisivel()) renderConfig();
   toast(`${eq.nome} excluído.`);
   return true;
+}
+
+// A própria pessoa sai do grupo (o grupo continua para os outros).
+async function sairDaEquipe(eq) {
+  const minhas = state.tarefas.filter(t => t.equipeId === eq.id && t.responsavel === state.current.id && !t.concluida).length;
+  const mensagem = `Sair de ${eq.nome}? Você deixa de ver o quadro desse grupo` +
+    (minhas ? ` e ${plural(minhas, "tarefa sua fica", "tarefas suas ficam")} sem responsável.` : ".");
+  const ok = await showConfirm(mensagem, { title: "Sair do grupo", confirmLabel: "Sair" });
+  if (!ok) return;
+  try {
+    await api.sairDaEquipe(eq.id);
+  } catch (err) {
+    toast(err.message, true);
+    return;
+  }
+  if (state.current.isAdmin) {
+    // O administrador geral continua vendo todos os grupos: só atualiza os membros.
+    state.equipes = await api.getEquipes();
+    state.tarefas.forEach(t => { if (t.equipeId === eq.id && t.responsavel === state.current.id) t.responsavel = null; });
+  } else {
+    state.equipes = state.equipes.filter(e => e.id !== eq.id);
+    state.tarefas = state.tarefas.filter(t => t.equipeId !== eq.id);
+    if (state.equipeAtual === eq.id) {
+      state.equipeAtual = state.equipes[0]?.id ?? null;
+      salvarPreferencia("equipeAtual", String(state.equipeAtual ?? ""));
+    }
+  }
+  renderNavEquipes();
+  renderFiltroUsuarios();
+  renderBoard();
+  if (configVisivel()) renderConfig();
+  toast(`Você saiu de ${eq.nome}.`);
 }
 
 document.getElementById("btn-equipe-excluir").addEventListener("click", async () => {
