@@ -1,8 +1,8 @@
 #!/bin/bash
-# Inicia o Portal da Controladoria localmente
+# Inicia o Quadro localmente
 # Execute na raiz do projeto: bash backend/start.sh
 
-echo "🚀 Iniciando Portal da Controladoria..."
+echo "🚀 Iniciando o Quadro..."
 echo ""
 
 # Verifica se Python está disponível

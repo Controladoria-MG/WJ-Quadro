@@ -1,8 +1,8 @@
 @echo off
-:: Inicia o Portal da Controladoria localmente no Windows
+:: Inicia o Quadro localmente no Windows
 :: Execute na raiz do projeto: backend\start.bat
 
-echo Iniciando Portal da Controladoria...
+echo Iniciando o Quadro...
 echo.
 
 :: Verifica Python

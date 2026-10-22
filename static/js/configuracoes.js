@@ -209,7 +209,7 @@ function renderConfig() {
 
   // ── Administração
   if (eu.isAdmin) {
-    const admin = cartaoConfig("Administração", "Edição direta de todas as tarefas e usuários do portal.");
+    const admin = cartaoConfig("Administração", "Edição direta de todas as tarefas e usuários do Quadro.");
     const b = document.createElement("button");
     b.type = "button";
     b.className = "btn btn-ghost btn-sm";

@@ -1,17 +1,17 @@
-# Portal da Controladoria
+# Quadro
 
-Sistema interno para criação e acompanhamento de tarefas da equipe de controladoria.
+Sistema de tarefas em kanban para as equipes e grupos da MG, criado e mantido por Willian Arruda e Juan Rodrigues.
 
 ---
 
 ## Estrutura do Projeto
 
 ```
-Portal da Controladoria/
-├── index.html              # Frontend principal
+Quadro/
+├── index.html              # Todas as telas e janelas
 ├── static/
-│   ├── script.js           # Lógica do frontend (consome a API)
-│   └── style.css           # Estilos (tema escuro)
+│   ├── js/                 # Lógica da tela, um arquivo por área (consome a API)
+│   └── style.css           # Estilos (modos claro e escuro)
 ├── data/
 │   ├── tarefas.json        # Base de dados de tarefas
 │   └── users.json          # Base de dados de usuários
@@ -37,7 +37,7 @@ backend\start.bat
 bash backend/start.sh
 ```
 
-O portal estará disponível em: **http://localhost:8000**
+O Quadro estará disponível em: **http://localhost:8000**
 A documentação da API em: **http://localhost:8000/docs**
 
 > **Importante:** sempre abra pelo endereço `http://localhost:8000`,
