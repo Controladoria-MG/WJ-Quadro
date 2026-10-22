@@ -44,7 +44,7 @@ DATABASE_URL=postgresql://... uvicorn backend.main:app --reload --port 8000
 - **Interface 100% em português**, sem "cara de IA" (sem emojis nem notas explicativas) e com plural concordando.
 - O nome do sistema é **"Quadro"**, para não confundir com o "Portal de Tarefas" da Central de Relatórios.
 - **Radar Contábil:** outro portal (estático, `Controladoria-MG/Radar-Contabil` no GitHub Pages) usa este servidor só para guardar as etapas marcadas, na tabela `radar_contabil_etapas`. Rotas `GET /api/radar-contabil/progresso` e `PUT /api/radar-contabil/marcacao`, sem login (o CORS `*` é o que permite o acesso pelo github.io). Não mexa nelas sem atualizar o `static/script.js` de lá.
-- **Autoria:** criado e mantido por Willian Arruda e Juan Rodrigues. A logo deles (símbolo SVG `#logo-jw` no `index.html`, sem verde: corpo em `currentColor`, faixas na cor de destaque) aparece só no rodapé da entrada e em Configurações > Sobre. A marca da barra lateral continua a do Quadro.
+- **Autoria:** criado e mantido por Willian Arruda e Juan Rodrigues. A logo deles (símbolo SVG `#logo-jw` no `index.html`, sem verde: corpo em `currentColor`, faixas na cor de destaque) aparece ao lado do nome "Quadro" (barra lateral e cartão de entrada), no rodapé da entrada e em Configurações > Sobre.
 
 ## Armadilhas (não fazer)
 

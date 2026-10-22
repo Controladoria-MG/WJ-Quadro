@@ -2319,7 +2319,7 @@ button.dash-kpi { font: inherit; color: inherit; text-align: left; }
 .concluidas-arquivadas { grid-column: 1 / -1; justify-self: center; margin-top: 8px; }
 
 /* ── Logo e créditos (Willian e Juan) ─────────────────────── */
-.logo-jw { display: block; color: var(--white); aspect-ratio: 320 / 400; }
+.logo-jw { display: block; color: var(--white); aspect-ratio: 292 / 400; }
 .logo-faixa { fill: var(--green); }
 #login-screen { flex-direction: column; gap: 18px; padding: 24px 16px; }
 .login-creditos {
@@ -2331,3 +2331,13 @@ button.dash-kpi { font: inherit; color: inherit; text-align: left; }
 .sobre-quadro { display: flex; align-items: center; gap: 16px; margin-top: 12px; }
 .sobre-quadro .logo-jw { height: 64px; width: auto; flex-shrink: 0; }
 .sobre-quadro p { color: var(--muted); font-size: 13px; }
+
+/* Logo de Willian e Juan ao lado do nome "Quadro" (barra lateral e entrada) */
+.sidebar-brand-icon, .login-logo-icon { background: none; border-radius: 0; width: auto; }
+.sidebar-brand-icon .logo-jw { height: 30px; width: auto; }
+.login-logo-icon .logo-jw { height: 38px; width: auto; }
+/* O "JW" fica abaixo do centro do desenho (a torre ocupa o topo): sobe um
+   pouco a logo para as letras ficarem na altura da palavra "Quadro". */
+.sidebar-brand-icon .logo-jw, .login-logo-icon .logo-jw { transform: translateY(-7%); }
+:root .sidebar-brand-icon svg.logo-jw,
+:root .login-logo-icon svg.logo-jw { color: var(--white); }
